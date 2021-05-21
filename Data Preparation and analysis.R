@@ -7,6 +7,8 @@ library(skimr)
 #to deal with class imbalance
 install.packages("themis")
 library(themis)
+library(tidyr)
+library(reshape2)
 
 
 #load the data set
@@ -39,6 +41,9 @@ data_frame4<- data_frame3 %>% rename(
   receiv = rect)
 
 write.csv(data_frame4, "fraud_data.csv", row.names = FALSE)
+
+
+fraud_data <- read.csv('fraud_data.csv')
 
 #------------------ dataset analysis------------------# 
 
@@ -81,3 +86,41 @@ dataset <- data_frame[validation_index,]
 
 
 
+#----------------------------------------
+# Create the Benford indicators
+#----------------------------------------
+
+
+# Step 1: create a dataset per year
+
+fraud_data <- fraud_data %>% select(-misstate, -sich)
+
+fraud_data$ID <- seq.int(nrow(fraud_data))
+
+fraud_split <- split(fraud_data, fraud_data$fyear)
+
+new_names <- as.character(unique(fraud_data$fyear))
+
+for (i in 1:length(fraud_split)) {
+  assign(paste("year_",new_names[i], sep = ""), fraud_split[[i]])
+}
+
+
+# Step 2: transpose the dataset
+
+year_1990 <- year_1990 %>% select(-fyear)
+
+year_1990_T <- as.data.frame(t(year_1990))
+
+my.names <- as.character(year_1990$gvkey)
+
+colnames(year_1990_T) <- my.names
+
+year_1990_T <- year_1990_T[-c(1,45),]
+
+write.csv(year_1990_T, "1990_T.csv")
+
+
+year_1990_sub <- as.data.frame(year_1990_T[,c(1:3)])
+
+write.csv(year_1990_sub, "1990_sub3.csv", row.names = FALSE)
