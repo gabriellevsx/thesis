@@ -10,13 +10,17 @@ library(themis)
 library(tidyr)
 library(reshape2)
 
+library(formattable)
+
+
+specify_decimal <- function(x, k) trimws(format(round(x, k), nsmall=k))
 
 #load the data set
 
 data_frame <- read.csv("export_dataframe.csv")
 
 data_frame2 <- data_frame %>% select(-p_aaer)
-data_frame3 <- data_frame2 %>% select(-new_p_aaer, -insbnk, -understatement, -option)
+data_frame3 <- data_frame2 %>% select(-new_p_aaer, -insbnk, -understatement, -option, - issue)
 
 
 
@@ -93,6 +97,8 @@ dataset <- data_frame[validation_index,]
 
 # Step 1: create a dataset per year
 
+fraud_data <- read.csv("fraud_data.csv")
+
 fraud_data <- fraud_data %>% select(-misstate, -sich)
 
 fraud_data$ID <- seq.int(nrow(fraud_data))
@@ -110,17 +116,22 @@ for (i in 1:length(fraud_split)) {
 
 year_1990 <- year_1990 %>% select(-fyear)
 
+year_1990$gvkey <- paste0(year_1990$gvkey, "_id")
+
 year_1990_T <- as.data.frame(t(year_1990))
 
-my.names <- as.character(year_1990$gvkey)
+my.names <- year_1990$gvkey
 
 colnames(year_1990_T) <- my.names
 
-year_1990_T <- year_1990_T[-c(1,45),]
+year_1990_T <- year_1990_T[-c(1,43),]
 
-write.csv(year_1990_T, "1990_T.csv")
+year_1990_T_numb <- formattable(as.data.frame(lapply(year_1990_T, as.numeric)), digits = 8, format = "f")
 
 
-year_1990_sub <- as.data.frame(year_1990_T[,c(1:3)])
+write.csv(year_1990_T_numb, "1990_T9.csv", row.names = FALSE)
 
-write.csv(year_1990_sub, "1990_sub3.csv", row.names = FALSE)
+
+year_1990_sub <- as.data.frame(year_1990_T_numb[,c(1:100)])
+
+write.csv(year_1990_sub, "1990_sub9.csv", row.names = FALSE)
