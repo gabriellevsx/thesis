@@ -52,26 +52,27 @@ fraud_data <- read.csv('fraud_data.csv')
 #------------------ dataset analysis------------------# 
 
 # dimensions (116836 obs,51 var)
-dim(data_frame)
+glimpse(fraud_data)
+dim(fraud_data)
 
 # data info
-skim(data_frame)
-summary(data_frame)
+skim(fraud_data)
+summary(fraud_data)
 
 # because we will start vy building a classification model, we have to convert "misstate" from a numeric to a factor variable
 
-data_frame$misstate <- as.factor(data_frame$misstate)
+data_frame$misstate <- as.factor(fraud_data$misstate)
 
 # misstate proportion
-table(data_frame$misstate)
+table(fraud_data$misstate)
 
-percentage <- prop.table(table(data_frame$misstate)) * 100
+percentage <- prop.table(table(fraud_data$misstate)) * 100
 
-cbind(freq=table(data_frame$misstate), percentage=percentage)
+cbind(freq=table(fraud_data$misstate), percentage=percentage)
 
 
 # again detect class imbalance
-data_frame %>% count(misstate) %>% 
+fraud_data %>% count(misstate) %>% 
   mutate(prop = n / sum(n))
 
 # visualisation with plots
@@ -81,11 +82,20 @@ data_frame %>% count(misstate) %>%
 
 # create validation set which will be used later to compare the performance of all the models
 
-validation_index <- createDataPartition(data_frame$misstate, p=0.80, list=FALSE)
+validation_index <- createDataPartition(fraud_data$misstate, p=0.80, list=FALSE)
 
-validation <-  data_frame[-validation_index,]
+validation <-  fraud_data[-validation_index,]
 
-dataset <- data_frame[validation_index,]
+dataset <- fraud_data[validation_index,]
+
+
+
+
+
+
+
+
+
 
 
 
