@@ -1,0 +1,705 @@
+---
+title: "Linear Regression, Logistic Regression and k-Nearest Neighbours"
+output:
+  pdf_document: default
+  html_notebook: default
+editor_options:
+  chunk_output_type: inline
+---
+
+## Objectives
+
+After going through this notebook, you should:
+
+ * Know what an R Notebook is and be able to produce a simple one yourself
+ * Have a basic understanding of the **tidymodels** approach to modelling
+ * Understand how to split your data into distinct subsets for training, validation and testing
+ * Be familiar with some commonly used metrics for assessing the quality of regression models
+ 
+## Overview
+ 
+We will cover linear regression, logistic regression as well as k-nearest neighbours regression and classification in this notebook. These are covered in separate sections for regression and classification. We will make use of data sets which you will see also in the *Introduction to Statistical Learning* (or ISLR) book. These we will load into our R session below when we need them.
+
+We will use a variety of packages, so let's load all of them now in our first code chunk:
+
+```{r load-packages, message=FALSE}
+library("tidyverse")
+library("tidymodels")
+```
+
+You will also need to have the **kknn** package installed for k-nearest neighbours. This can be done by running `install.packages("kknn")` once in R.
+
+In the code chunk above, I have used the chunk option `message = FALSE` to make sure my HTML document does not include any messages that loading these packages may produce. You can select this option using the gear icon. The chunk is also named, which makes navigating the notebook a little easier. Chunk names are optional. All chunk options are listed [here](https://yihui.name/knitr/options/?version=1.1.447&mode=desktop).
+
+The **tidymodels** package is a meta-package containing a new and still evolving set of tools for modelling in R. It is likely to become the standard modelling interface in R in the coming years. We will try to use this in most of our notebooks, although some algorithms that we will need are yet to be added to this framework. Therefore, we will use also individual modelling functions from specific packages directly, as applicable.
+
+# Regression
+
+Here we consider a simple regression model, with the goal of learning to predicting sales from advertising expenditure. The latter is given by three features: one for each of the three different channels (`TV`, `Radio`, and `Newspaper`) in the data in `Advertising.csv`. This is a comma-separated text (CSV) file, which is a common and simple text format for tabular data.
+
+## Loading and Exploring the Advertising Data
+
+Next, lets load and print the `Advertising.csv` data set using the `read_csv()` function from **readr**, a part of **tidyverse**. In this chunk, I will not show the code in the HTML document, but only its output. This is facilitated by the `echo = FALSE` chunk option. You can set this option using the gear icon at the top right of the code chunk. I also specify that all columns should be assumed to be double precision (decimal numbers). Many data formats do not specify explicitly the format of each variable. It is critical to get it right though, as making an inappropriate decision could have unforeseen consequences later on. 
+
+This is what the data looks like:
+
+```{r load-data, echo = FALSE}
+ads <- read_csv("Advertising.csv", 
+                col_types = cols(.default = col_double()))
+ads
+```
+
+Usually it makes more sense to show only the first or last few lines of the data using `head()` or `tail()`, but this data set is quite small. It contains `r nrow(ads)` rows on `r ncol(ads)` variables. More information on the data can be found in the slides.
+
+Often, using `glimpse()` (or, alternatively, `str()`) for a quick overview is more useful:
+
+```{r}
+glimpse(ads)
+```
+
+Clearly, the target variable and three features are all numeric with a ratio measurement scale. Once the data is loaded, you should always explore it first to make sure you understand it. This is a particularly easy task with this data set. A histogram of the target variable, `Sales`, look as follows:
+
+```{r y-plot, echo = FALSE, out.width = '100%'}
+ggplot(ads, aes(x = Sales)) + 
+  geom_histogram(bins = 20)
+```
+
+
+Exploratory plots showing the relationships of individual features with the `Sales` variable can be created using **ggplot2** (also from the **tidyverse**) as, for example:
+
+```{r x-plots, echo = FALSE, out.width = '100%'}
+ggplot(ads, aes(x = TV, y = Sales)) + 
+  geom_point() + geom_smooth(method = "lm", formula = y ~ x, se = FALSE)
+```
+
+**Now add similar plots for the other two features.**
+
+```{r}
+ggplot(ads, aes(x = Radio, y = Sales)) + 
+  geom_point() + geom_smooth(method = "lm", formula = y ~ x, se = FALSE)
+
+ggplot(ads, aes(x = Newspaper, y = Sales)) + 
+  geom_point() + geom_smooth(method = "lm", formula = y ~ x, se = FALSE)
+```
+
+
+## Strategy
+
+If we were to use all the data for model estimation (or training), then we could proceed to train our model on all the available data. This would be appropriate if our only goal was inference. Using the `lm` function for linear regression models, we could run the following to estimate a main effects model using ordinary least squares (OLS):
+
+```{r results='hide'}
+lm(Sales ~ TV + Radio + Newspaper, data = ads)
+```
+
+Using different model formula specifications, we could add interaction effects and so forth. For example, `Sales ~ TV + Radio + Newspaper + TV:Radio` adds an interaction term between `TV` and `Radio` 
+
+Here we will however assume that we are focusing on prediction. Therefore, we will start by keeping a proportion of the data for training, setting aside the rest for testing. We will suppose that the goal is to perform model selection between a linear regression model and a k-NN regression model, both of which use all three features as main effects. We will ultimately do the model selection using the test data. But we will need to do hyperparameter tuning too for k-NN, so the initial training set will be split further into a subset for training and a subset for validation or tuning. Try to get retain a clear picture of this setup.
+
+It should always be clear from the outset what the goal of a modelling effort is: don't get ahead of yourself because if you use all your data from the outset, you may need to collect more later to ensure your results are not optimistically biased.
+
+## Creating a Train-Test Split
+
+Let's start by creating a random train-test split. We will use the facilities in the **rsample** package for this and other approaches. 
+
+Here we create a reproducible split where roughly 70% of the observations are used for training, and 30% are kept back for testing:
+
+```{r}
+set.seed(8949)
+ads_splits <- initial_split(ads, prop = 0.7)
+ads_splits
+```
+
+This object contains the data, and information on which rows are to be used for training (the *analysis* set), and which are to be used for testing (the *assessment* set).
+
+We can create the data frame for the two parts as follows:
+
+```{r}
+ads_train <- training(ads_splits)
+ads_test  <- testing(ads_splits)
+```
+
+Now we have a train set with `r nrow(ads_train)` and a test set of `r nrow(ads_test)` observations.
+
+The train set will be used differently for linear regression and k-NN. For linear regression, we will fit only one model on the entire training set. But for k-NN, we will split this training set even further into a part for training and a part for validation. These will be needed for tuning the number of neighbours, k. We could perhaps have used better names for these sets.
+
+### Random number generation
+
+Before we go on, a small note on random number generation. To make our results reproducible, so that we will get exactly the same results next time we run our code, we should specify a seed (any integer) for the random number generator before any random procedure. This will allow us to generate exactly the same random numbers by resetting the seed before rerunning the code.
+
+You can think of random numbers generated by a computer as a very, very long ordered sequence of pseudo-random numbers computed using mathematical formulas. The seed is just a number which tells the computer where in that sequence we want to start using these numbers. So setting a seed before starting means that we can get back to the same starting point next time.
+
+Here is an example. Let's set the seed to 42, and generate five uniform random numbers:
+```{r rng}
+set.seed(42)
+runif(5)
+```
+But if we generate 5 more random numbers, we will (of course) get different numbers:
+```{r rng-2}
+runif(5)
+```
+However, if we reset the seed, we will be able to get the original five numbers back:
+```{r rng-3}
+set.seed(81231)
+runif(5)
+```
+This is very important if we want to be able to reproduce the results of random procedures. Let's get back to modelling.
+
+## Linear Regression
+
+In machine learning, it is crucial to be able to separate the model specification from training. This will allow us to control exactly when and how the data is prepared, which will enable us to apply the same steps to the test set but using statistics estimated only on the training set. This is crucial as it avoids data leakage from the train to the test set, by ensuring that these sets remain independent after preprocessing (or *feature engineering*). The **tidymodels** package has been developed for this purpose.
+
+There is a list of the available models and computing engines (used for training the model) [over here](https://www.tidymodels.org/find/parsnip/). As you will see, there are quite a few already, but over the coming months and years this list will grow considerably.
+
+### A simple start
+
+We create a model template by specifying the type of model, and by setting a computation engine. Here we specify a linear regression model, which will be estimated using the `lm()` function:
+
+```{r}
+lm_mod <- linear_reg() %>% 
+  set_engine("lm")
+lm_mod
+```
+This is just a placeholder which we could use now to train a model using the `fit()` function. For our main effects linear regression model on the training data, we have:
+
+```{r}
+lm_fit <- lm_mod %>% 
+  fit(Sales ~ TV + Radio + Newspaper, data = ads_train)
+```
+
+Here are some information on the trained model:
+
+```{r}
+lm_fit
+```
+
+We can get even more information using `summary(lm_fit$fit)`, `glance(lm_fit)` or the following:
+
+```{r}
+tidy(lm_fit)
+```
+
+This gets the estimation done. We can now manually predict the value of `Sales` for the test set using `predict()`:
+
+```{r}
+predict(lm_fit, new_data = ads_test)
+```
+
+We can then use these to calculate any metrics we care about.
+
+In general, it will be more convenient to use a so-called workflow, because (1) this allows us to treat models that require tuning and those that don't in the same way, and (2) it will make calculating the metrics we care about much easier. 
+
+Let's repeat the above then, but now using a workflow.
+
+### Using a workflow
+
+A workflow separates specifying the type of model and its computational engine, from data handling. 
+
+We start with an identical model specification to what we had above:
+
+```{r}
+lm_mod <- linear_reg() %>% 
+  set_engine("lm")
+```
+
+Now we build a recipe which states which variables will be used in the model, and how they will be handled. Here, we do not want to do any feature transformations ourselves, so the recipe is very simple:
+
+```{r}
+lm_mod_recipe <- 
+  recipe(Sales ~ TV + Radio + Newspaper, data = ads_train)
+```
+These are combined into a workflow as follows:
+
+```{r}
+lm_mod_workflow <- 
+  workflow() %>% 
+  add_model(lm_mod) %>% 
+  add_recipe(lm_mod_recipe)
+```
+
+Here is the result:
+
+```{r}
+lm_mod_workflow
+```
+
+There are no preprocessing steps, and no hyperparameters to tune. But the advantage is that we could add those easily, as we will see in the next section. 
+
+Before we go there, note that you can use `fit()` as before on the workflow, as in:
+
+```{r}
+lm_mod_workflow %>% fit(ads_train)
+```
+
+Let's move on the k-nearest neighbours, where we will need both a recipe and some parameter tuning.
+
+## k-nearest Neighbours Regression
+
+### Adding a validation split
+
+Here we have a tuning or hyperparameter that we need to select before we are ready for training. We can achieve this by adding a validation split to what we called our training split above. In this section, our original training split will be split into an even smaller training set, and a validation set. Let's keep 70% of the original training data as training set here, and the remainder as validation set for selecting the number of neighbours, $k$:
+
+```{r}
+set.seed(91231)
+ads_train_val <- validation_split(ads_train, prop = 0.7)
+```
+Now we have a validation set split:
+
+```{r}
+ads_train_val
+```
+### Setting up a tuning grid
+
+We are now almost ready to tune the number of nearest neighbours. The final step is to set up a data frame with the values of $k$ that we would like to explore. Let's suppose we want to do a grid search over 1, 3, 5, ..., 15 (we could use other values as well). Then we need a data frame (or tibble) containing these values:
+
+```{r}
+knn_regr_tune_grid <- tibble(neighbors = 1:8*2 - 1)
+knn_regr_tune_grid
+```
+
+### Specifying a workflow
+
+Here we are going to need a more elaborate workflow.
+
+First, we specify the model, its mode (such as regression or classification), and the computational engine:
+
+```{r}
+knn_regr_mod <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("kknn")
+```
+
+The second part specifies how the data should be handled in a so-called recipe. It starts with a formula, and is then followed by one or more steps which will be applied to the data before the model is trained. You can also specify what roles each variable in the data plays. This is usually taken directly from the formula. The transformation steps are invoked using functions with names in the form `step_*()`.  
+
+Since k-NN relies on distance calculations, we will normalize the features to have mean zero and standard deviation one to ensure that the measurement scales do not have undue influence on the results:
+
+```{r}
+knn_regr_recipe <- 
+  recipe(Sales ~ TV + Radio + Newspaper, data = ads_train) %>% 
+  step_normalize(TV, Radio, Newspaper)
+```
+
+We could have used `step_normalize(all_predictors())` in the last line instead. Here is an overview of the recipe:
+
+```{r}
+knn_regr_recipe
+```
+
+Let's see whether we can understand this better. We can prepare the recipe by calculating the quantities needed in the steps using `prep()`, and then we can apply this to a potentially different data set using `bake()`. Let's see what this looks like:
+
+```{r}
+ads_train_baked <- knn_regr_recipe %>% prep(ads_train) %>% bake(ads_train)
+ads_train_baked %>% head()
+```
+As you can see, the three features have now been transformed, such that (for example) we have:
+
+```{r}
+c(mean = mean(ads_train_baked$TV), 
+  sd = sd(ads_train_baked$TV))
+```
+
+So the mean is zero (to machine precision) and the standard deviation is one. Notice that we could have used instead
+
+```
+knn_regr_recipe %>% prep(ads_train) %>% bake(ads_test)
+```
+
+This is very important because it allows us to apply the recipe prepared on the training data to the test data. It avoids a common form of data leakage, where data preparations induce dependencies between the train and test sets.
+
+Finally, the workflow object is then just
+```{r}
+knn_regr_workflow <-
+  workflow() %>% 
+  add_model(knn_regr_mod) %>% 
+  add_recipe(knn_regr_recipe)
+```
+We are now ready to tune our k-NN regression model using this workflow:
+
+```{r}
+knn_regr_workflow
+```
+
+Let's remove the `ads_train_baked` object we do not need:
+```{r}
+rm(ads_train_baked)
+```
+
+### Tuning the number of nearest neighbours
+
+We perform a grid search over the grid of potential values, using our validation set, as follows:
+
+```{r}
+knn_regr_tune_res <- knn_regr_workflow %>% 
+  tune_grid(resamples = ads_train_val, 
+            grid = knn_regr_tune_grid,
+            metrics = metric_set(rmse, rsq_trad, mae))
+```
+
+Here we have specified that we want to calculate the root mean squared error, the $R^2$ value, and the mean absolute error for the validation set predictions. Always use multiple metrics, since it can point out important issues with the data.
+
+The metrics can be collected as follows:
+
+```{r}
+knn_regr_tune_res %>% collect_metrics()
+```
+
+We can now plot them directly too, as we do here:
+
+```{r}
+knn_regr_tune_res %>% collect_metrics() %>% 
+  ggplot(aes(x = neighbors, y = mean)) + 
+  geom_point() + geom_line() + 
+  facet_wrap(~ .metric, scales = "free_y")
+```
+Therefore, using this validation set, we can see that $k = 7$ is the best choice using all three these metrics. Here are the top three options by RMSE:
+
+```{r}
+knn_regr_tune_res %>% 
+  show_best("rmse", n = 3) %>% 
+  arrange(neighbors)
+```
+
+Luckily for us, there is little ambiguity, and in the absence of other concerns in this example, we can proceed to finalize our model workflow.
+
+### Finalizing our workflow
+
+We conclude the tuning process by finalizing our workflow as follows:
+
+```{r}
+knn_regr_best_model <- select_best(knn_regr_tune_res, metric = "rmse")
+
+knn_regr_workflow_final <- 
+  knn_regr_workflow %>% 
+  finalize_workflow(knn_regr_best_model)
+```
+
+If we want to retrain on the entire training set, we could do:
+
+```{r}
+knn_regr_workflow_final %>% fit(data = ads_train)
+```
+
+But this does not give us the results on the test set (although we could do the work ourselves using `predict()` with the result of this fit). To do that, we can use `last_fit()`, as we will do in the next section when we pit this model against our linear regression model. 
+
+## Selecting between linear regression and k-nearest neighbours
+
+We will now use the test set to select the best between these two models. Lets do that for the linear regression model first:
+
+```{r}
+lm_last_fit <- lm_mod_workflow %>% 
+  last_fit(ads_splits, metrics = metric_set(rmse, mae, rsq_trad))
+```
+
+The performance on the test set for this model is
+
+```{r}
+lm_metrics <- lm_last_fit %>% collect_metrics()
+lm_metrics
+```
+
+We can do the same to train and test the selected k-NN model:
+
+```{r echo=TRUE}
+knn_regr_last_fit <- knn_regr_workflow_final %>% 
+  last_fit(ads_splits, 
+           metrics = metric_set(rmse, mae, rsq_trad))
+```
+
+Importantly, note that we now use the original train-test split in `last_fit()`. We can collect the same metrics as:
+
+```{r}
+knn_regr_metrics <- knn_regr_last_fit %>% 
+  collect_metrics()
+knn_regr_metrics
+```
+
+We can get these into a single object with some transformations:
+
+```{r}
+lm_metrics <- lm_metrics %>% 
+  select(-.estimator) %>% 
+  mutate(model = "lm")
+knn_regr_metrics <- knn_regr_metrics %>% 
+  select(-.estimator) %>% 
+  mutate(model = "knn")
+bind_rows(lm_metrics, knn_regr_metrics) %>% 
+  pivot_wider(names_from = .metric, values_from = .estimate)
+```
+Clearly, the k-NN model is better *on average* using all three these metrics. If this was a real application, we would however want to know more than just average performance. Which markets (= observations) does it perform poor on? Are there any remaining trends that we can capture to improve our models? These types of questions call for a careful error analysis. This can be based on the predictions for the test set, which we can obtain for example using:
+
+```{r}
+lm_last_fit %>% collect_predictions()
+```
+
+# Classification
+
+In this section, we will consider how to train and test a model for binary classification using **tidymodels**. 
+
+## Predicting credit card defaults
+
+We will work with the `Default` data set, also from the ISLR book. The aim is to predict whether or not a new customer will default on his or her credit card debt. There are, again, only three features to work with. These are:
+
+* `student`: Whether a person is a student or not
+* `balance`: The monthly credit card balance
+* `income`: Annual income
+
+Note that one of these are nominal, and we should therefore create dummy variables for it in our preprocessing recipe. This can be done using `step_dummy()`.
+
+In this case, the data is stored in an RData file, so we can simply `load()` it:
+
+```{r}
+load("Default.RData")
+```
+
+Here are the first few lines from the data:
+
+```{r}
+head(Default)
+```
+
+The target variable is `default`, and there is significant class imbalance. Calculate the proportion of observation of each class:
+
+```{r}
+Default %>% count(default) %>% 
+  mutate(prop = n / sum(n))
+```
+
+A density plot showing the class separation for the numeric features are shown below:
+
+```{r}
+ggplot(Default, aes(x = income, fill = default)) + 
+  geom_density(alpha = 0.5)
+ggplot(Default, aes(x = balance, fill = default)) + 
+  geom_density(alpha = 0.5)
+```
+
+The following table shows the distribution of `student` within each category of `default`:
+
+```{r}
+Default %>% 
+  count(default, student) %>% 
+  group_by(default) %>% 
+  mutate(prop = n / sum(n))
+```
+
+The following plot shows both `balance` and `income`:
+
+```{r}
+ggplot(Default, aes(x = balance, y = income, colour = default)) + 
+  geom_point(alpha = 0.5)
+```
+
+It seems that the strongest class differentiation comes from `balance`.
+ 
+## Creating a Train-Test Split
+
+Create a *stratified* train-test split on this data. Use the `strata` argument in `initial_split()`. Keep 70% for training.
+
+```{r}
+set.seed(982348)
+Default_splits <- initial_split(Default, prop = 0.7, strata = default)
+```
+
+Extract the train and test sets:
+
+```{r}
+Default_train <- training(Default_splits)
+Default_test <- testing(Default_splits)
+```
+
+**8Calculate the class proportions for the train and test sets to see that it worked:**
+
+```{r}
+Default_train %>% 
+  count(default) %>% 
+  mutate(prop = n / sum(n))
+
+Default_test %>% 
+  count(default) %>% 
+  mutate(prop = n / sum(n))
+
+```
+
+Why do we need a stratified split? we want to have the same proportions of default and non-default in both the training and test sets.
+
+## Logistic regression
+
+Set up a workflow for performing logistic regression on this data set.
+
+Start by specifying the model:
+
+```{r}
+lr_mod <- logistic_reg() %>% 
+  set_engine("glm")
+```
+
+Now specify a recipe for handling the data. Use `step_dummy()` for the nominal feature. We do not need any other transformations for this model.
+
+**Do this yourself now:**
+
+```{r}
+lr_mod_recipe <- recipe(default ~ student + income, data = Default_train) %>% 
+  step_dummy(student)
+```
+
+**Combine these into a workflow:**
+
+```{r}
+lr_mod_workflow <- 
+  workflow() %>% 
+  add_model(lr_mod) %>% 
+  add_recipe(lr_mod_recipe)
+```
+
+If we want, we can fit this as follows:
+
+```{r}
+lr_mod_workflow %>% fit(data = Default_train)
+```
+
+But we will use `last_fit()` below to train and test in one go. We are now ready for the logistic regression model with main effects, and we can proceed to the k-NN classifier.
+ 
+## k-nearest Neighbours Classification
+
+### Adding a validation split
+
+Here we have a tuning or hyperparameter that we need to select before we are ready for training. We can achieve this by adding a validation split to what we called our training split above. In this section, our original training split will be split into an even smaller training set, and a validation set. Let's keep 70% of the original training data as training set here, and the remainder as validation set for selecting the number of neighbours, $k$:
+
+```{r}
+set.seed(914231)
+Default_train_val <- validation_split(Default_train, strata = default, prop = 0.5)
+```
+Now we have a validation set split:
+
+```{r}
+Default_train_val
+```
+### Setting up a tuning grid
+
+We might will need larger values of k than before (since the number of observations is higher too), so let's try:
+
+```{r}
+knn_class_tune_grid <- tibble(neighbors = 5:25*2 + 1)
+knn_class_tune_grid
+```
+
+### Specifying a workflow
+
+First, we specify the model, its mode (such as regression or classification), and the computational engine.
+
+**Do this yourself now:**
+
+```{r}
+knn_class_mod <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("kknn")
+```
+
+For the recipe, we can make a variety of choices. Let's keep it simple and use only the two numeric features, normalized.
+
+**Do this yourself now:**
+
+```{r}
+knn_class_recipe <- 
+  recipe(default ~ balance + income, 
+                        data = Default_train) %>% 
+  step_normalize(balance, income)
+```
+
+Here is an overview of the recipe:
+
+```{r}
+knn_class_recipe
+```
+
+Let's see whether we can understand this better. We can prepare the recipe by calculating the quantities needed in the steps using `prep()`, and then we can apply this to a potentially different data set using `bake()`. Let's see what this looks like:
+
+```{r}
+Default_train_baked <- knn_class_recipe %>% prep(Default_train) %>% bake(Default_train)
+Default_train_baked %>% head()
+```
+As you can see, only the two features have now been retained and also transformed, such that (for example) we have:
+
+```{r}
+c(mean = mean(Default_train_baked$balance), 
+  sd = sd(Default_train_baked$income))
+```
+
+So the mean is zero (to machine precision) and the standard deviation is one.
+
+**Finally, create the workflow object yourself:**
+```{r}
+knn_class_workflow <-
+  workflow() %>% 
+  add_model(knn_class_mod) %>% 
+  add_recipe(knn_class_recipe)
+```
+We are now ready to tune our k-NN regression model using this workflow:
+
+```{r}
+knn_class_workflow
+```
+
+Let's remove the `Default_train_baked` object we do not need:
+```{r}
+rm(Default_train_baked)
+```
+
+### Tuning the number of nearest neighbours
+
+We perform a grid search over the grid of potential values, using our validation set.
+
+**Do this yourself now:**
+
+```{r}
+knn_class_tune_res <- knn_class_workflow %>% 
+  tune_grid(resamples = Default_train_val, 
+            grid = knn_class_tune_grid,
+            metrics = metric_set(kap, f_meas, bal_accuracy, accuracy))
+```
+
+Here we have specified that we want to calculate Cohen's Kappa, the F-score, the balanced accuracy, and accuracy for the validation set predictions. See the **yardstick** package for the options. Do not worry too much about what these mean: we will come back to them. Let's focus on the how the code works.
+
+The metrics can be collected as follows:
+
+```{r}
+knn_class_tune_res %>% collect_metrics()
+```
+
+We can now plot them directly too, as we do here:
+
+```{r}
+knn_class_tune_res %>% collect_metrics() %>% 
+  ggplot(aes(x = neighbors, y = mean)) + 
+  geom_point() + geom_line() + 
+  facet_wrap(~ .metric, scales = "free_y")
+```
+These give conflicting opinions. Let's stick to accuracy for now, although it has severe limitations, especially when there is class imbalance.
+
+Here are the top three options by accuracy:
+
+```{r}
+knn_class_tune_res %>% 
+  show_best("accuracy", n = 3) %>% 
+  arrange(neighbors)
+```
+if ties, choose the simplest model, which is k = 35. 
+
+
+### Finalizing our workflow
+
+Now finalize your workflow for the k-NN classification model.
+
+```{r}
+## to be completed
+knn_class_workflow_final <- knn_class_workflow 
+
+```
+
+## Selecting between logistic regression and k-nearest neighbours classification
+
+Proceed to determing which of the logistic regression model and the k-NN classifier should be selected.
+
+```{r}
+## to be completed
+```
+
