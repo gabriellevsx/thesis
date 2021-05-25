@@ -44,6 +44,8 @@ data_frame4<- data_frame3 %>% rename(
   ppe = ppegt,
   receiv = rect)
 
+data_frame4$misstate <- as.factor(data_frame4$misstate)
+
 write.csv(data_frame4, "fraud_data.csv", row.names = FALSE)
 
 
