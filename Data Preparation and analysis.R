@@ -11,42 +11,55 @@ library(tidyr)
 library(reshape2)
 
 library(formattable)
+library(stringi)
 
-
-specify_decimal <- function(x, k) trimws(format(round(x, k), nsmall=k))
 
 #load the data set
 
 data_frame <- read.csv("export_dataframe.csv")
 
-data_frame2 <- data_frame %>% select(-p_aaer)
-data_frame3 <- data_frame2 %>% select(-new_p_aaer, -insbnk, -understatement, -option, - issue)
+data_frame <- data_frame %>% select(-p_aaer)
+data_frame <- data_frame %>% select(-new_p_aaer, -insbnk, -understatement, -option, - issue)
 
 
+data_frame$key_id <- stri_rand_strings(146045, 3)
 
+
+gvkey_id <- data_frame[,c(2,46)]
+
+write.csv(gvkey_id, "gvkey_id_match.csv")
+
+data_frame <- data_frame[, -2]
 
 #rename the variable
 
-data_frame4<- data_frame3 %>% rename(
+data_frame<- data_frame %>% rename(
    crt_ast = act,
   acc_pyb = ap, 
   ast = at,
   cmn_equ = ceq,
   cash = che,
   crt_dbt = dlc,
-  lg_term_dbt_iss = dltis,
-  lg_term_dbt = dltt,
-  depr_amort = dp,
+  lt_db_is = dltis,
+  lt_db = dltt,
+  dpr_amrt = dp,
   ibei = ib,
-  sht_trm_inv = ivst,
+  st_inv = ivst,
   crt_liab = lct,
   liab = lt,
   ppe = ppegt,
   receiv = rect)
 
-data_frame4$misstate <- as.factor(data_frame4$misstate)
+data_frame$misstate <- as.factor(data_frame$misstate)
+data_frame$fyear <- as.factor(data_frame$fyear)
+data_frame$sich <- as.factor(data_frame$sich)
+data_frame$key_id <- as.factor(data_frame$key_id)
 
-write.csv(data_frame4, "fraud_data.csv", row.names = FALSE)
+                   
+
+str(data_frame)
+
+write.csv(data_frame, "fraud_data.csv", row.names = FALSE)
 
 
 fraud_data <- read.csv('fraud_data.csv')
@@ -128,22 +141,22 @@ for (i in 1:length(fraud_split)) {
 
 year_1990 <- year_1990 %>% select(-fyear)
 
-year_1990$gvkey <- paste0(year_1990$gvkey, "_id")
-
 year_1990_T <- as.data.frame(t(year_1990))
 
-my.names <- year_1990$gvkey
+my.names <- year_1990$key_id
 
 colnames(year_1990_T) <- my.names
 
-year_1990_T <- year_1990_T[-c(1,43),]
+year_1990_T <- year_1990_T[-c(43,44),]
 
 year_1990_T_numb <- formattable(as.data.frame(lapply(year_1990_T, as.numeric)), digits = 8, format = "f")
 
+#year_1990_T_numb <- year_1990_T_numb[complete.cases(year_1990_T_numb),]
 
-write.csv(year_1990_T_numb, "1990_T9.csv", row.names = FALSE)
+
+write.csv(year_1990_T_numb, "sub_1990.csv", row.names = FALSE)
 
 
-year_1990_sub <- as.data.frame(year_1990_T_numb[,c(1:100)])
+year_1990_sub <- as.data.frame(year_1990_T_numb[,c(1:999)])
 
-write.csv(year_1990_sub, "1990_sub9.csv", row.names = FALSE)
+write.csv(year_1990_sub, "subsub9_1990.csv", row.names = FALSE)
