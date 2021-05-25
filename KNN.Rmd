@@ -13,24 +13,30 @@ Multiple packages are needed to run the KNN regression and classification.
 library("tidyverse")
 library("tidymodels")
 library("kknn")
+library("dplyr")
+library("readr")
 ```
 
 The dataset also must be loaded.
 
 ```{r}
-data_frame<-read.csv("fraud_data.csv")
+data_frame <- read.csv("fraud_data.csv")
 
 data_frame$misstate <- as.factor(data_frame$misstate)
 data_frame$fyear <- as.factor(data_frame$fyear)
 data_frame$sich <- as.factor(data_frame$sich)
-data_frame$gvkey <- as.factor(data_frame$gvkey)
+data_frame$key_id <- as.factor(data_frame$key_id)
 
 str(data_frame)
+
+data_sample <- data_frame[sample(nrow(data_frame), 50000), ]
 ```
 
 
 ```{r}
 data_frame <- data_frame[complete.cases(data_frame),]
+
+data_sample <- data_sample[complete.cases(data_sample),]
 ```
 
 
@@ -47,10 +53,12 @@ Let's start by creating a train-test split. To ensure that the splits are the sa
 
 ```{r}
 set.seed(466581)
-fr_split <- initial_split(data = data_frame, prop = 0.7, 
+fr_split <- initial_split(data = data_sample, prop = 0.7, 
                           strata = "misstate")
 fr_train <- training(fr_split)
 fr_test <- testing(fr_split)
+
+rm(data_frame)
 ```
 
 We know have two data set, a training sets containing `r nrow(fr_train)` observations and a test set with `r nrow(fr_test)` observations. 
@@ -71,7 +79,7 @@ To tune the hyperparameter $k$, we also need a tuning grid. A tuning grid is a d
 
 
 ```{r}
-knn_regr_tune_grid <- tibble(neighbors = 1:8*2 - 1)
+knn_regr_tune_grid <- tibble(neighbors = 1:6*2 - 1)
 knn_regr_tune_grid
 ```
 
@@ -92,7 +100,8 @@ In the next step, I specify the recipe of the workflow, which is how the data wi
 ```{r}
 knn_regr_recipe <- 
   recipe(misstate ~ ., data = fr_train) %>% 
-  step_normalize(all_numeric_predictors())
+  step_normalize(all_numeric_predictors()) %>%
+  step_downsample(misstate)
 
 knn_regr_recipe
 ```
@@ -145,14 +154,15 @@ We perform a grid search over the grid of potential values, using our validation
 
 gc()
 
-saveRDS(fr_train, "fr_train.RData")
+memory.size()
+memory.limit()
+memory.limit(size = 56000)
 
 knn_regr_tune_res <- knn_regr_workflow %>% 
   tune_grid(resamples = fr_valid, 
             grid = knn_regr_tune_grid,
             metrics = metric_set(accuracy, roc_auc, kap))
 
-knn_regr_tune_res$.notes
 ```
 
 Here we have specified that we want to calculate the root mean squared error, the $R^2$ value, and the mean absolute error for the validation set predictions. Always use multiple metrics, since it can point out important issues with the data.
