@@ -19,8 +19,19 @@ The dataset also must be loaded.
 
 ```{r}
 data_frame<-read.csv("fraud_data.csv")
+
+data_frame$misstate <- as.factor(data_frame$misstate)
+data_frame$fyear <- as.factor(data_frame$fyear)
+data_frame$sich <- as.factor(data_frame$sich)
+data_frame$gvkey <- as.factor(data_frame$gvkey)
+
+str(data_frame)
 ```
 
+
+```{r}
+data_frame <- data_frame[complete.cases(data_frame),]
+```
 
 
 # Strategy
@@ -66,50 +77,45 @@ knn_regr_tune_grid
 
 ### Specifying a workflow
 
-Here we are going to need a more elaborate workflow.
+To begin with, I specific the model, the mode (here, classification), and the computational engine ("knn") of the workflow. 
 
-First, we specify the model, its mode (such as regression or classification), and the computational engine:
 
 ```{r}
 knn_regr_mod <- nearest_neighbor(neighbors = tune()) %>% 
-  set_mode("regression") %>% 
+  set_mode("classification") %>% 
   set_engine("kknn")
 ```
 
-The second part specifies how the data should be handled in a so-called recipe. It starts with a formula, and is then followed by one or more steps which will be applied to the data before the model is trained. You can also specify what roles each variable in the data plays. This is usually taken directly from the formula. The transformation steps are invoked using functions with names in the form `step_*()`.  
+In the next step, I specify the recipe of the workflow, which is how the data will be handled by the model. Because k-nearest neighbours algorithm is based on distance calculation, it is necessary to normalize the numeric features in our model.
 
-Since k-NN relies on distance calculations, we will normalize the features to have mean zero and standard deviation one to ensure that the measurement scales do not have undue influence on the results:
 
 ```{r}
 knn_regr_recipe <- 
-  recipe(Sales ~ TV + Radio + Newspaper, data = ads_train) %>% 
-  step_normalize(TV, Radio, Newspaper)
-```
+  recipe(misstate ~ ., data = fr_train) %>% 
+  step_normalize(all_numeric_predictors())
 
-We could have used `step_normalize(all_predictors())` in the last line instead. Here is an overview of the recipe:
-
-```{r}
 knn_regr_recipe
 ```
 
+
+################# rewrite the text from here
 Let's see whether we can understand this better. We can prepare the recipe by calculating the quantities needed in the steps using `prep()`, and then we can apply this to a potentially different data set using `bake()`. Let's see what this looks like:
 
 ```{r}
-ads_train_baked <- knn_regr_recipe %>% prep(ads_train) %>% bake(ads_train)
-ads_train_baked %>% head()
+fr_train_baked <- knn_regr_recipe %>% prep(fr_train) %>% bake(fr_train)
+fr_train_baked %>% head()
+
+
+
 ```
 As you can see, the three features have now been transformed, such that (for example) we have:
 
 ```{r}
-c(mean = mean(ads_train_baked$TV), 
-  sd = sd(ads_train_baked$TV))
+
+#c(mean = mean(ads_train_baked$TV), 
+ # sd = sd(ads_train_baked$TV))
 ```
 
-So the mean is zero (to machine precision) and the standard deviation is one. Notice that we could have used instead
-
-```
-knn_regr_recipe %>% prep(ads_train) %>% bake(ads_test)
-```
 
 This is very important because it allows us to apply the recipe prepared on the training data to the test data. It avoids a common form of data leakage, where data preparations induce dependencies between the train and test sets.
 
@@ -128,7 +134,7 @@ knn_regr_workflow
 
 Let's remove the `ads_train_baked` object we do not need:
 ```{r}
-rm(ads_train_baked)
+rm(fr_train_baked)
 ```
 
 ### Tuning the number of nearest neighbours
@@ -136,10 +142,17 @@ rm(ads_train_baked)
 We perform a grid search over the grid of potential values, using our validation set, as follows:
 
 ```{r}
+
+gc()
+
+saveRDS(fr_train, "fr_train.RData")
+
 knn_regr_tune_res <- knn_regr_workflow %>% 
-  tune_grid(resamples = ads_train_val, 
+  tune_grid(resamples = fr_valid, 
             grid = knn_regr_tune_grid,
-            metrics = metric_set(rmse, rsq_trad, mae))
+            metrics = metric_set(accuracy, roc_auc, kap))
+
+knn_regr_tune_res$.notes
 ```
 
 Here we have specified that we want to calculate the root mean squared error, the $R^2$ value, and the mean absolute error for the validation set predictions. Always use multiple metrics, since it can point out important issues with the data.
