@@ -37,7 +37,9 @@ Before we analyse the data, we must plan ahead. We will need to tune our tree, w
 
 ```{r}
 
-data_frame <- read.csv("fraud_data.csv")
+data_frame <- read.csv("frd_bf.csv")
+
+data_frame <- data_frame %>% select(-X)
 
 data_frame$misstate <- as.factor(data_frame$misstate)
 data_frame$fyear <- as.factor(data_frame$fyear)
