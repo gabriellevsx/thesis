@@ -36,6 +36,15 @@ library(rpart.plot)
 Before we analyse the data, we must plan ahead. We will need to tune our tree, which we will do using K-fold cross-validation. But let's also keep some data for testing our tuned tree. Therefore, we start by making a stratified train-test split. We keep 70% of the data for training and 30% for testing:
 
 ```{r}
+
+data_frame <- read.csv("fraud_data.csv")
+
+data_frame$misstate <- as.factor(data_frame$misstate)
+data_frame$fyear <- as.factor(data_frame$fyear)
+data_frame$sich <- as.factor(data_frame$sich)
+data_frame$key_id <- as.factor(data_frame$key_id)
+
+
 set.seed(466581)
 fr_split <- initial_split(data = data_frame, prop = 0.7, 
                           strata = "misstate")
