@@ -1,15 +1,10 @@
 library(dplyr)
-
-install.packages("caret")
 library(caret)
-install.packages("skimr")
 library(skimr)
 #to deal with class imbalance
-install.packages("themis")
 library(themis)
 library(tidyr)
 library(reshape2)
-
 library(formattable)
 library(stringi)
 
@@ -24,12 +19,13 @@ data_frame <- data_frame %>% select(-new_p_aaer, -insbnk, -understatement, -opti
 
 data_frame$key_id <- stri_rand_strings(146045, 3)
 
+data_frame <- data_frame[, -2]
 
+# save the key - gvkey match
 gvkey_id <- data_frame[,c(2,46)]
-
 write.csv(gvkey_id, "gvkey_id_match.csv")
 
-data_frame <- data_frame[, -2]
+
 
 #rename the variable
 
@@ -147,16 +143,52 @@ my.names <- year_1990$key_id
 
 colnames(year_1990_T) <- my.names
 
-year_1990_T <- year_1990_T[-c(43,44),]
+year_1990_T <- year_1990_T[-c(42,43),]
 
-year_1990_T_numb <- formattable(as.data.frame(lapply(year_1990_T, as.numeric)), digits = 8, format = "f")
-
-#year_1990_T_numb <- year_1990_T_numb[complete.cases(year_1990_T_numb),]
+year_1990_T_numb <- as.data.frame(lapply(year_1990_T, as.numeric))
 
 
-write.csv(year_1990_T_numb, "sub_1990.csv", row.names = FALSE)
+is.num <- sapply(year_1990_T_numb, is.numeric)
+year_1990_T_numb[is.num] <- lapply(year_1990_T_numb[is.num], round, 5)
 
 
-year_1990_sub <- as.data.frame(year_1990_T_numb[,c(1:999)])
+rm(year_1990_T_numb_compl)
 
-write.csv(year_1990_sub, "subsub9_1990.csv", row.names = FALSE)
+year_1990_T_numb_compl <- year_1990_T_numb %>%
+  select_if(~ !any(is.na(.)))
+
+
+write.csv(year_1990_T_numb_compl, "df_1990.csv", row.names = FALSE)
+
+
+year_1990_sub <- as.data.frame(year_1990_T_numb_compl[,c(1:10)])
+
+write.csv(year_1990_sub, "df1_1990.csv", row.names = FALSE)
+
+
+
+
+
+
+
+
+
+
+library(magicfor)               # load library
+install.packages("benford.analysis")
+library("benford.analysis")
+
+result1 <- benford(fraud_data$crt_ast, number.of.digits = 2)
+result1
+plot(result1)
+
+#crt_asset: close confromity
+
+
+magic_for(print, silent = TRUE)
+
+
+for(i in 1:ncol(fraud_data)) {
+  benf_result <- benford(fraud_data[,i], number.of.digits = 2)
+  benf_result
+}
