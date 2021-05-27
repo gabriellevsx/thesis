@@ -6,6 +6,13 @@ output: html_document
 ---
 # Decision Trees
 
+## Set a goal
+
+The data set is imbalanced, therefore, accuracy would not be a good metric, as a "null model"(always predicts no misstatement) would achieve a very high accuracy. 
+
+Because our goal is to uncover observations that include misstattement, we should focus on sensitivity. Howver, because of the class imbalance, achieving high sensitivity will be tough. As such, let's aim for a sensitivity of 0.7. 
+
+Overall, we want to achieve high sensitivity while still being able to detect observations that do not contain misstatement. Hence, a decent level of specificity, about 60%, is still needed. 
 ## Preparing the analysis
 
 Let's start by loading the packages we will need.
@@ -37,9 +44,10 @@ Before we analyse the data, we must plan ahead. We will need to tune our tree, w
 
 ```{r}
 
-data_frame <- read.csv("frd_bf.csv")
+data_frame <- read.csv("fraud_data.csv")
 
-data_frame <- data_frame %>% select(-X)
+#data_frame <- read.csv("frd_bf.csv")
+#data_frame <- data_frame %>% select(-X)
 
 data_frame$misstate <- as.factor(data_frame$misstate)
 data_frame$fyear <- as.factor(data_frame$fyear)
@@ -91,6 +99,7 @@ We also have to take care to use only the variables we intend to use in the mode
 
 ```{r}
 tree_recipe <- recipe(misstate ~ ., data = fr_train) %>% 
+  step_rm(key_id) %>%
   step_downsample(misstate)
 tree_recipe
 ```
@@ -112,7 +121,7 @@ First, we will need tuning grid. Let's use the following values in our grid sear
 
 
 ```{r}
-tree_grid <- tibble(cost_complexity = 10^seq(from = -4, to = 0, length.out = 20))
+tree_grid <- tibble(cost_complexity = 10^seq(from = -6, to = -1, length.out = 20))
 tree_grid
 ```
 
@@ -122,10 +131,17 @@ Now we can perform our 10-fold CV, calculating several metrics:
 
 ```{r}
 class_metrics <- metric_set(accuracy, kap, sensitivity, specificity)
-tree_tune_res <- tree_wf %>% 
+tree_tune_class <- tree_wf %>% 
   tune_grid(resamples = cv_folds,
             grid = tree_grid,
             metrics = class_metrics)
+
+tree_bf_class <- tree_tune_res
+tree_bf_class_metrics <- tree_bf_class %>% collect_metrics()
+
+save(tree_bf_class, file="tree_bf_result_train.RData")
+load("tree_bf_result_train.RData")
+save(tree_bf_class_metrics, file="tree_bf_metrics_train.RData")
 
 ```
 
@@ -133,14 +149,14 @@ tree_tune_res <- tree_wf %>%
 Here are the results:
   
 ```{r}
-tree_metrics <- tree_tune_res %>% collect_metrics()
-tree_metrics
+tree_class_metrics <- tree_tune_class %>% collect_metrics()
+tree_class_metrics
 ```
 
 Here is a plot showing both the sensitivity and specificity:
 
 ```{r}
-tree_metrics %>% filter(.metric %in% c("sens", "spec")) %>% 
+tree_class_metrics %>% filter(.metric %in% c("sens", "spec")) %>% 
   ggplot(aes(x = cost_complexity, y = mean, 
              ymin = mean - std_err, ymax = mean + std_err, 
              colour = .metric)) +
@@ -152,7 +168,7 @@ accuracy
 
 
 ```{r}
-tree_metrics %>% filter(.metric == "accuracy") %>% 
+tree_class_metrics %>% filter(.metric == "accuracy") %>% 
   ggplot(aes(x = cost_complexity, y = mean, 
              ymin = mean - std_err, ymax = mean + std_err)) +
   geom_errorbar(width = 0.1) + 
@@ -162,10 +178,10 @@ tree_metrics %>% filter(.metric == "accuracy") %>%
 The values of $\alpha$ which give a mean estimated sensitivity between 0.65 and 0.75 are:
 
 ```{r}
-tree_metrics_sub <- tree_metrics %>% 
+tree_metrics_sub <- tree_class_metrics %>% 
   pivot_wider(names_from = ".metric", 
               values_from = c("mean", "std_err")) %>% 
-  filter(mean_sens > 0.65, mean_sens < 0.75) %>% 
+  filter(mean_sens > 0.64, mean_sens < 0.76) %>% 
   arrange(desc(mean_sens))
 tree_metrics_sub
 ```
@@ -174,7 +190,7 @@ tree_metrics_sub
 Let's select `Model10', which achieves about 71% sensitivity and 67% specificity:
 
 ```{r}
-tree_selected <- tree_metrics_sub %>% filter(.config == "Preprocessor1_Model10")
+tree_selected <- tree_metrics_sub %>% filter(.config == "Preprocessor1_Model16")
 tree_selected
 ```
 
@@ -218,7 +234,7 @@ tree_test_metrics
 We will specify the model using a complete formula. Here is a formula which uses all variables 
 
 ```{r}
-tree_formula <- misstate ~ . 
+tree_formula <- misstate ~ .
 
 set.seed(24356)
 rpart_fit <- rpart(tree_formula, data = fr_train, method = "class", 
@@ -237,7 +253,7 @@ printcp(rpart_fit)
 We can now prune the tree and plot it. Let's use the tree with 15 splits:
 
 ```{r}
-rpart_pruned <- rpart::prune(rpart_fit, cp = 0.0064822)
+rpart_pruned <- rpart::prune(rpart_fit, cp = 0.004)
 rpart.plot(rpart_pruned)
 plot(as.party(rpart_pruned))
 ```
@@ -248,11 +264,11 @@ plot(as.party(rpart_pruned))
 Here are the predicted classes for the test data:
 
 ```{r}
-rpart_test_pred <- predict(rpart_pruned, newdata = fr_test, type = "class")
+rpart_test_bf_pred <- predict(rpart_pruned, newdata = fr_test, type = "class")
 
-rpart_test_metrics <- 
-  fr_test %>% mutate(rpart_pred = rpart_test_pred) %>% 
+rpart_test_bf_metrics <- 
+  fr_test %>% mutate(rpart_pred = rpart_test_bf_pred) %>% 
   class_metrics(truth = misstate, estimate = rpart_pred)
-rpart_test_metrics
+rpart_test_bf_metrics
 ```
 
