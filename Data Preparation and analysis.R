@@ -159,28 +159,35 @@ bg2 <- bg2 %>% rename(
   gvkey = gvkey_1
 )
 
+bg2 <- bg2[complete.cases(bg2),]
 
 bg3 <- benford_pre_data[,c(5,6)]
 
+bg3 <- bg3 %>% rename(
+  data = receiv,
+  gvkey = gvkey_2
+)
+
+bg3 <- bg3[complete.cases(bg3),]
 
 
 
+bg4 <- rbind(bg1, bg1, bg3)
 
+library(dplyr)
 
+bg5 <- bg4 %>% subset(data >10 | data < -10)
 
+median(bg5$data)
 
+hist(bg5$data, xlim = c(-400,450000))
 
+Y <- split(bg4, bg4$gvkey)
 
+bg5 <- as.data.frame(Y[[54]])
 
-
-
-
-
-
-
-
-
-
+bg5_res <-benford(bg5$data, number.of.digits=1)
+bg5_res
 
 
 
