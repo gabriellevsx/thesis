@@ -186,20 +186,33 @@ xgb_fr_tune_results <- tune_grid(
   metrics = class_metrics
 )
 
-xgb_bf_tune_results <- tune_grid(
-  xgb_bf_wf,
-  resamples = fraud_cv,
-  grid = xgb_grid,
-  metrics = class_metrics
-)
+xgb_fr_tune_results %>%
+  collect_metrics()
+
+xgb_fr_tune_results %>% 
+  collect_metrics() %>%
+  filter(.metric %in% c("accuracy", "sens", "spec")) %>%
+  ggplot(aes(x = trees, y = mean, colour = .metric)) +
+  geom_path() +
+  facet_wrap(learn_rate ~ tree_depth)
+
 
 
 #########################
 # Finalize the workflow #
 #########################
 
-
+#-------------
 # fraud data
+#-------------
 
+#svm
 svm_fr_fit <- svm_fr_wf %>%
   last_fit(fraud_split)
+
+
+#xgb 
+
+param_final <- xgb_fr_tune_results %>%
+  select_best(metric = "accuracy")
+param_final
