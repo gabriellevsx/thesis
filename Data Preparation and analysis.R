@@ -7,25 +7,15 @@ library(tidyr)
 library(reshape2)
 library(formattable)
 library(stringi)
+library(ggplot2)
 
 
 #load the data set
 
 data_frame <- read.csv("export_dataframe.csv")
 
-data_frame <- data_frame %>% select(-p_aaer)
-data_frame <- data_frame %>% select(-new_p_aaer, -insbnk, -understatement, -option, - issue)
 
-
-data_frame$key_id <- stri_rand_strings(146045, 3)
-
-data_frame <- data_frame[, -2]
-
-# save the key - gvkey match
-gvkey_id <- data_frame[,c(2,46)]
-write.csv(gvkey_id, "gvkey_id_match.csv")
-
-
+data_frame <- data_frame %>% select(-p_aaer,-new_p_aaer, -insbnk, -understatement, -option, - issue)
 
 #rename the variable
 
@@ -49,7 +39,7 @@ data_frame<- data_frame %>% rename(
 data_frame$misstate <- as.factor(data_frame$misstate)
 data_frame$fyear <- as.factor(data_frame$fyear)
 data_frame$sich <- as.factor(data_frame$sich)
-data_frame$key_id <- as.factor(data_frame$key_id)
+
 
                    
 
@@ -75,21 +65,27 @@ summary(fraud_data)
 data_frame$misstate <- as.factor(fraud_data$misstate)
 
 # misstate proportion
-table(fraud_data$misstate)
+table(data_frame$misstate)
 
-percentage <- prop.table(table(fraud_data$misstate)) * 100
+percentage <- prop.table(table(data_frame$misstate)) * 100
 
-cbind(freq=table(fraud_data$misstate), percentage=percentage)
+cbind(freq=table(data_frame$misstate), percentage=percentage)
 
 
 # again detect class imbalance
-fraud_data %>% count(misstate) %>% 
+data_frame %>% count(misstate) %>% 
   mutate(prop = n / sum(n))
+
+ggplot(data_frame, 
+       aes(x = fyear, 
+           fill = misstate)) + 
+  geom_bar(position = "stack")
+
 
 # visualisation with plots
 
-
-
+ggplot(data_frame, aes(misstate)) +
+  geom_bar(fill = "cornflowerblue") 
 
 # create validation set which will be used later to compare the performance of all the models
 
@@ -114,6 +110,83 @@ dataset <- fraud_data[validation_index,]
 #----------------------------------------
 # Create the Benford indicators
 #----------------------------------------
+
+bf_data <- fraud_data %>% select(gvkey , crt_ast,cash, acc_pyb, cogs, invt, st_inv, crt_liab, liab, dpr_amrt, receiv)
+
+bf_data$gvkey <- as.character(bf_data$gvkey)
+
+write.csv(bf_data,"bf_data.csv", row.names = FALSE)
+
+names <- unique(bf_data$gvkey)
+
+
+X <- split(bf_data, bf_data$gvkey)
+
+A <- X[[1]]
+A <- A %>% select(-fyear,-gvkey, -misstate, -pstk, -sich)
+write.csv(A, "bf_test.csv", row.names = FALSE)
+
+B <- X[[2]]
+B <- B %>% select(-fyear,-gvkey, -misstate, -pstk, -sich)
+write.csv(B, "bf2_test.csv", row.names = FALSE)
+
+
+sql1 <- read.csv("test3.csv")
+
+sql2 <- read.csv("benf_data2_sql.csv")
+
+
+library(benford.analysis)
+
+sql_result <- benford(sql2$data, number.of.digits = 2)
+
+plot(sql_result)
+
+
+
+
+bg1 <- benford_pre_data[,c(1,2)]
+
+bg1 <- bg1 %>% rename(
+  data = crt_ast
+)
+
+
+bg2 <- benford_pre_data[,c(3,4)]
+
+bg2 <- bg2 %>% rename(
+  data = liab,
+  gvkey = gvkey_1
+)
+
+
+bg3 <- benford_pre_data[,c(5,6)]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Step 1: create a dataset per year
@@ -174,6 +247,7 @@ write.csv(year_1990_sub, "df1_1990.csv", row.names = FALSE)
 
 
 
+
 install.packages("benford.analysis")
 library("benford.analysis")
 
@@ -188,6 +262,8 @@ suspects1_crt_ast$crt_ast_bf <- 1
 frd<- left_join(fraud_data, suspects1_crt_ast, by = c("key_id" = "key_id", "fyear"="fyear"))
 frd$crt_ast_bf <- as.factor(ifelse(is.na(frd$crt_ast_bf), 0, 1))
 
+
+frd <- frd[,c(4,46)]
 
 #2. acc_pyb - close conformity
 result2 <- benford(fraud_data$acc_pyb, number.of.digits = 2)
