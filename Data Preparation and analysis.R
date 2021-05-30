@@ -8,6 +8,7 @@ library(reshape2)
 library(formattable)
 library(stringi)
 library(ggplot2)
+library(DataExplorer)
 
 
 #load the data set
@@ -39,11 +40,10 @@ data_frame<- data_frame %>% rename(
 data_frame$misstate <- as.factor(data_frame$misstate)
 data_frame$fyear <- as.factor(data_frame$fyear)
 data_frame$sich <- as.factor(data_frame$sich)
-
-
+data_frame$gvkey <- as.character(data_frame$gvkey)
                    
 
-str(data_frame)
+skim(data_frame)
 
 write.csv(data_frame, "fraud_data.csv", row.names = FALSE)
 
@@ -55,6 +55,8 @@ fraud_data <- read.csv('fraud_data.csv')
 # dimensions (116836 obs,51 var)
 glimpse(fraud_data)
 dim(fraud_data)
+
+DataExplorer::plot_intro(fraud)
 
 # data info
 skim(fraud_data)

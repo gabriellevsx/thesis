@@ -17,25 +17,32 @@ library("xgboost")
 fraud <- read.csv("fraud_data.csv")
 benford <- read.csv("frd_bf.csv")
 
+str(fraud)
+
 fraud$misstate <- as.factor(fraud$misstate)
 fraud$fyear <- as.factor(fraud$fyear)
-fraud$sich <- as.factor(fraud$sich)
+fraud$sich <- as.character(fraud$sich)
+fraud$gvkey <- as.character(fraud$gvkey)
 
 benford$misstate <- as.factor(benford$misstate)
 benford$fyear <- as.factor(benford$fyear)
 benford$sich <- as.factor(benford$sich)
+benford$gvkey <- as.character(benford$key_id)
+benford[45:68] <- lapply(benford[45:68], as.numeric)
+str(benford)
 
-fraud <- fraud[complete.cases(fraud),] %>% select(-key_id, -sich)
-benford <- benford[complete.cases(benford),]%>% select(-key_id, -sich)
+
+fraud <- fraud[complete.cases(fraud),] %>% select(-gvkey, -sich)
+benford <- benford[complete.cases(benford),] %>% select(-X, -key_id, -gvkey, -sich)
 
 
 # split the data into trainng (75%) and testing (25%)
 set.seed(466581)
-fraud_split <- initial_split(fraud, prop = 3/4)
+fraud_split <- initial_split(fraud, prop = 3/4, strata = misstate)
 fraud_split
 
 set.seed(466581)
-benford_split <- initial_split(benford,prop = 3/4)
+benford_split <- initial_split(benford,prop = 3/4, strata = misstate)
 benford_split
 
 # extract training and testing sets
@@ -46,7 +53,7 @@ benford_train <- training(benford_split)
 benford_test <- testing(benford_split)
 
 # create validation set
-fraud_cv <- vfold_cv(fraud_train)
+fraud_cv <- vfold_cv(fraud_train, strata = misstate)
 
 benford_cv<- vfold_cv(benford_train)
 
@@ -59,25 +66,35 @@ sum(is.na(fraud_train))
 #note: could not use step_rose because too few oberve
 
 fraud_recipe <-  recipe(misstate ~., data = fraud_train) %>%
-  step_dummy(fyear) %>%
-  step_center(all_predictors(), -all_outcomes()) %>%
-  step_scale(all_predictors(), -all_outcomes()) %>%
-  step_smote(misstate) %>% prep()
+  step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
+                 ni, ppe, pstk, re, receiv, sale) %>%
+  step_other(all_nominal(), -all_outcomes(), threshold = 0.01) %>%
+  step_dummy(fyear)%>%
+  step_smote(misstate) %>% 
+  step_impute_knn(all_predictors())
+
+
+#%>%
+    #prep()
 fraud_recipe
+
+
+str(benford_train)
 
 benford_recipe <-  recipe(misstate ~., data = benford_train) %>%
   step_dummy(fyear) %>%
-  step_center(all_predictors(), -all_outcomes()) %>%
-  step_scale(all_predictors(), -all_outcomes()) %>%
   step_smote(misstate) %>% prep()
 benford_recipe
+
+rlang::last_error()
+
+str(benford_train)
 
 fraud_train_preprocessed <- fraud_recipe %>%
   # apply the recipe to the training data
   prep(fraud_train) %>%
   # extract the pre-processed training dataset
   juice()
-fraud_train_preprocessed
 
 benford_train_preprocessed <- benford_recipe %>%
   # apply the recipe to the training data
@@ -185,6 +202,8 @@ xgb_fr_tune_results <- tune_grid(
   grid = xgb_grid,
   metrics = class_metrics
 )
+
+xgb_fr_tune_results$.notes
 
 xgb_fr_tune_results %>%
   collect_metrics()
