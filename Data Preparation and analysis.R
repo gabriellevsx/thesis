@@ -113,115 +113,98 @@ dataset <- fraud_data[validation_index,]
 # Create the Benford indicators
 #----------------------------------------
 
-bf_data <- fraud_data %>% select(gvkey , crt_ast,cash, acc_pyb, cogs, invt, st_inv, crt_liab, liab, dpr_amrt, receiv)
 
-bf_data$gvkey <- as.character(bf_data$gvkey)
-
-write.csv(bf_data,"bf_data.csv", row.names = FALSE)
-
-names <- unique(bf_data$gvkey)
-
-
-X <- split(bf_data, bf_data$gvkey)
-
-A <- X[[1]]
-A <- A %>% select(-fyear,-gvkey, -misstate, -pstk, -sich)
-write.csv(A, "bf_test.csv", row.names = FALSE)
-
-B <- X[[2]]
-B <- B %>% select(-fyear,-gvkey, -misstate, -pstk, -sich)
-write.csv(B, "bf2_test.csv", row.names = FALSE)
-
-
-sql1 <- read.csv("test3.csv")
-
-sql2 <- read.csv("benf_data2_sql.csv")
-
-
-library(benford.analysis)
-
-sql_result <- benford(sql2$data, number.of.digits = 2)
-
-plot(sql_result)
-
-
-
-
-bg1 <- benford_pre_data[,c(1,2)]
-
-bg1 <- bg1 %>% rename(
-  data = crt_ast
-)
-
-
-bg2 <- benford_pre_data[,c(3,4)]
-
-bg2 <- bg2 %>% rename(
-  data = liab,
-  gvkey = gvkey_1
-)
-
-bg2 <- bg2[complete.cases(bg2),]
-
-bg3 <- benford_pre_data[,c(5,6)]
-
-bg3 <- bg3 %>% rename(
-  data = receiv,
-  gvkey = gvkey_2
-)
-
-bg3 <- bg3[complete.cases(bg3),]
-
-
-
-bg4 <- rbind(bg1, bg1, bg3)
-
-library(dplyr)
-
-bg5 <- bg4 %>% subset(data >10 | data < -10)
-
-median(bg5$data)
-
-hist(bg5$data, xlim = c(-400,450000))
-
-Y <- split(bg4, bg4$gvkey)
-
-bg5 <- as.data.frame(Y[[54]])
-
-bg5_res <-benford(bg5$data, number.of.digits=1)
-bg5_res
-
-
-
-
-
-
-
-
-# Step 1: create a dataset per year
+# Step 1: create a dataset per 5-year
 
 fraud_data <- read.csv("fraud_data.csv")
 
-fraud_data <- fraud_data %>% select(-misstate, -sich)
+fraud_data <- fraud_data %>% select(-misstate, -sich, -dch_wc, -dch_rec, -dch_inv, -ch_rsst, -ch_cs, -ch_cm, -ch_roa, -ch_fcf, -reoa, -dpi, -bm, -EBIT, -soft_assets)
 
-fraud_data$ID <- seq.int(nrow(fraud_data))
+str(fraud_data)
 
-fraud_split <- split(fraud_data, fraud_data$fyear)
+fraud_data1 <- fraud_data %>% subset( fyear == 1990 | fyear == 1991 | fyear == 1992 | fyear == 1993 | fyear == 1994)%>% select(-fyear)
+fraud_data2 <- fraud_data %>% subset( fyear == 1996 | fyear == 1997 | fyear == 1998 | fyear == 1999 | fyear == 2000)%>% select(-fyear)
+fraud_data3 <- fraud_data %>% subset( fyear == 2001 | fyear == 2002 | fyear == 2003 | fyear == 2004 | fyear == 2005)%>% select(-fyear)
+fraud_data4 <- fraud_data %>% subset( fyear == 2006 | fyear == 2007 | fyear == 2008 | fyear == 2009 | fyear == 2010)%>% select(-fyear)
+fraud_data5 <- fraud_data %>% subset( fyear == 2011 | fyear == 2012 | fyear == 2013 | fyear == 2014)%>% select(-fyear)
 
-new_names <- as.character(unique(fraud_data$fyear))
 
-for (i in 1:length(fraud_split)) {
-  assign(paste("year_",new_names[i], sep = ""), fraud_split[[i]])
+
+fraud_data1 <- fraud_data1[c(1:50),]
+
+fraud_data1$ID <- seq.int(nrow(fraud_data1))
+
+fraud_split1 <- split(fraud_data1, fraud_data1$gvkey)
+
+new_names <- as.character(unique(fraud_data$gvkey))
+
+for (i in 1:length(fraud_split1)) {
+  assign(paste("gv",new_names[i], sep = ""), fraud_split1[[i]])
 }
+
+detach(package:plyr)    
+library(dplyr)
+
+fraud_data1$id <- ""
+fraud_data1_trial <- fraud_data1 %>% group_by(gvkey) %>% mutate(id=as.numeric(cur_group_id()))
+str(fraud_data1_trial)
+
+frdt2_2 <- fraud_data2_trial[fraud_data2_trial$id < 1500,]
+frdt2_2 <- frdt2_2[frdt2_2$id > 499,]
+
+frdt2_3 <- fraud_data2_trial[fraud_data2_trial$id < 2500,]
+frdt2_3 <- frdt2_3[frdt2_3$id > 1499,]
+
+frdt2_4 <- fraud_data2_trial[fraud_data2_trial$id < 3500,]
+frdt2_4 <- frdt2_4[frdt2_4$id > 2499,]
+
+frdt2_5 <- fraud_data2_trial[fraud_data2_trial$id < 4500,]
+frdt2_5 <- frdt2_5[frdt2_5$id > 3499,]
+
+frdt2_6 <- fraud_data2_trial[fraud_data2_trial$id < 5500,]
+frdt2_6 <- frdt2_6[frdt2_6$id > 4499,]
+
+frdt2_7 <- fraud_data2_trial[fraud_data2_trial$id < 6500,]
+frdt2_7 <- frdt2_7[frdt2_7$id > 5499,]
+
+frdt2_8 <- fraud_data2_trial[fraud_data2_trial$id < 7500,]
+frdt2_8 <- frdt2_8[frdt2_8$id > 6499,]
+
+frdt2_9 <- fraud_data2_trial[fraud_data2_trial$id < 8500,]
+frdt2_9 <- frdt2_9[frdt2_9$id > 7499,]
+
+frdt2_10 <- fraud_data2_trial[fraud_data2_trial$id < 9500,]
+frdt2_10 <- frdt2_10[frdt2_10$id > 8499,]
+
+frdt2_11 <- fraud_data2_trial[fraud_data2_trial$id < 12500,]
+frdt2_11 <- frdt2_11[frdt2_11$id > 9499,]
 
 
 # Step 2: transpose the dataset
 
-year_1990 <- year_1990 %>% select(-fyear)
+frdt2_2_T <-  as.data.frame(t(frdt2_2))
 
-year_1990_T <- as.data.frame(t(year_1990))
+my.names <- frdt2_1$id
+colnames(frdt2_1_T) <- paste("gv", my.names, sep = "")
 
-my.names <- year_1990$key_id
+frdt2_1_T <- as.data.frame(lapply(frdt2_1_T, as.numeric))
+
+str(fraud_data2_T_numb)
+
+fraud_data2_T <- fraud_data2_T[-1,]
+
+frdt2_1 <- fraud_data2_T[fraud_data2_T$id < 500,]
+
+write.csv(frdt2_1_T, "frddt21.csv")
+
+
+
+
+
+
+gv_1009_T <- as.data.frame(t(gv1009))
+
+my.names <- gv1009$gvkey
 
 colnames(year_1990_T) <- my.names
 
