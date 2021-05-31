@@ -7,6 +7,7 @@ library(kernlab)
 library("doParallel")
 library("themis")
 library("xgboost")
+library(vip)
 
 
 
@@ -67,10 +68,9 @@ sum(is.na(fraud_train))
 
 fraud_recipe <-  recipe(misstate ~., data = fraud_train) %>%
   step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
-                 ni, ppe, pstk, re, receiv, sale) %>%
+                 ni, ppe, pstk, re, receiv, sale) %>% step_dummy(fyear)%>%
   step_other(all_nominal(), -all_outcomes(), threshold = 0.01) %>%
-  step_dummy(fyear)%>%
-  step_smote(misstate) %>% 
+  step_downsample(misstate) %>% 
   step_impute_knn(all_predictors())
 
 
@@ -117,7 +117,7 @@ svm_fr_model <-
 
 xgb_fr_model <- 
   boost_tree(trees = tune(), tree_depth = tune(), 
-             learn_rate = tune(), stop_iter = 500) %>%
+             learn_rate = tune(), stop_iter = 400) %>%
   set_mode("classification") %>%
   set_engine("xgboost")
 
@@ -190,9 +190,9 @@ registerDoParallel()
 set.seed(8504)
 grid_max_entropy(trees(range = c(0, 200)), 
                  learn_rate(range = c(-2, -1)), 
-                 tree_depth(), size = 20)
+                 tree_depth(), size = 15)
 
-xgb_grid <- expand.grid(trees = 500 * 1:5, 
+xgb_grid <- expand.grid(trees = 300 * 1:7, 
                         learn_rate = c(0.1, 0.01), 
                         tree_depth = 1:3)
 
@@ -205,15 +205,22 @@ xgb_fr_tune_results <- tune_grid(
 
 xgb_fr_tune_results$.notes
 
-xgb_fr_tune_results %>%
+xgb_fr_tune_metrics <- xgb_fr_tune_results %>%
   collect_metrics()
 
-xgb_fr_tune_results %>% 
-  collect_metrics() %>%
+xgb_fr_tune_metrics %>% 
   filter(.metric %in% c("accuracy", "sens", "spec")) %>%
   ggplot(aes(x = trees, y = mean, colour = .metric)) +
   geom_path() +
   facet_wrap(learn_rate ~ tree_depth)
+
+xgb_fr_tune_metrics %>% 
+  filter(tree_depth == 3, learn_rate == 0.1, trees >= 1000 & trees <= 2000) %>% 
+  select(trees:learn_rate, .metric, mean) %>%
+  pivot_wider(trees:learn_rate,
+              names_from = .metric,
+              values_from = mean)
+
 
 
 
@@ -232,6 +239,44 @@ svm_fr_fit <- svm_fr_wf %>%
 
 #xgb 
 
-param_final <- xgb_fr_tune_results %>%
-  select_best(metric = "accuracy")
-param_final
+save(xgb_fr_tune_results)
+
+xgb_fr_best <- xgb_fr_tune_metrics %>% 
+  filter(.metric == "sens", tree_depth == 3, learn_rate == 0.1, trees == 1500)
+xgb_fr_final_wf <- finalize_workflow(xgb_fr_wf, xgb_fr_best)
+xgb_fr_final_wf
+
+
+
+#------------------
+# Test on test set
+#------------------
+
+xgb_fr_final_fit <- xgb_fr_final_wf %>%
+  last_fit(fraud_split, metrics = class_metrics)
+
+xgb_fr_final_fit %>%
+  collect_metrics()
+
+xgb_fr_final_fit %>% collect_predictions() %>% 
+  conf_mat(truth = misstate, estimate = .pred_class)
+
+xgb_fr_final_fit %>% collect_predictions() %>% 
+  roc_curve(misstate, .pred_1) %>% 
+  autoplot()
+
+xgb_fr_final_fit %>% collect_predictions() %>% 
+  lift_curve(misstate, .pred_1)%>% 
+  autoplot()
+
+xgb_fr_final_fit %>% collect_predictions() %>% 
+  gain_curve(misstate, .pred_1) %>% 
+  autoplot()
+
+
+xgb_fr_final_wf %>%
+  fit(data = fraud_train) %>%
+  pull_workflow_fit() %>%
+  vip(geom = "point")
+
+
