@@ -130,8 +130,6 @@ fraud_data5 <- fraud_data %>% subset( fyear == 2011 | fyear == 2012 | fyear == 2
 
 
 
-fraud_data1 <- fraud_data1[c(1:50),]
-
 fraud_data1$ID <- seq.int(nrow(fraud_data1))
 
 fraud_split1 <- split(fraud_data1, fraud_data1$gvkey)
@@ -142,12 +140,14 @@ for (i in 1:length(fraud_split1)) {
   assign(paste("gv",new_names[i], sep = ""), fraud_split1[[i]])
 }
 
+
+
 detach(package:plyr)    
 library(dplyr)
 
-fraud_data1$id <- ""
-fraud_data1_trial <- fraud_data1 %>% group_by(gvkey) %>% mutate(id=as.numeric(cur_group_id()))
-str(fraud_data1_trial)
+fraud_data2$id <- ""
+fraud_data2_trial <- fraud_data2 %>% group_by(gvkey) %>% mutate(id=as.numeric(cur_group_id()))
+str(fraud_data2_trial)
 
 frdt2_2 <- fraud_data2_trial[fraud_data2_trial$id < 1500,]
 frdt2_2 <- frdt2_2[frdt2_2$id > 499,]
@@ -182,23 +182,22 @@ frdt2_11 <- frdt2_11[frdt2_11$id > 9499,]
 
 # Step 2: transpose the dataset
 
-frdt2_2_T <-  as.data.frame(t(frdt2_2))
+frdt2_9_T <-  as.data.frame(t(frdt2_9))
 
-my.names <- frdt2_1$id
-colnames(frdt2_1_T) <- paste("gv", my.names, sep = "")
+my.names <- frdt2_9$gvkey
+colnames(frdt2_9_T) <- paste("gv", my.names, sep = "")
 
-frdt2_1_T <- as.data.frame(lapply(frdt2_1_T, as.numeric))
+frdt2_9_T <- as.data.frame(lapply(frdt2_9_T, as.numeric))
 
-str(fraud_data2_T_numb)
-
-fraud_data2_T <- fraud_data2_T[-1,]
-
-frdt2_1 <- fraud_data2_T[fraud_data2_T$id < 500,]
-
-write.csv(frdt2_1_T, "frddt21.csv")
+str(frdt2_4_T)
 
 
+write.csv(frdt2_9_T, "frddt2_7500-8499.csv")
 
+
+gvkey_dt <- as.character(frdt2_9$gvkey)
+
+write.csv(gvkey_dt, "gvkey9.csv")
 
 
 
