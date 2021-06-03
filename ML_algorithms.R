@@ -32,14 +32,14 @@ benford$gvkey <- as.character(benford$key_id)
 benford[45:68] <- lapply(benford[45:68], as.numeric)
 str(benford)
 
-
+library(dplyr)
 fraud <- fraud[complete.cases(fraud),] %>% select(-gvkey, -sich)
 benford <- benford[complete.cases(benford),] %>% select(-X, -key_id, -gvkey, -sich)
 
 
 # split the data into trainng (75%) and testing (25%)
 set.seed(466581)
-fraud_split <- initial_split(fraud, prop = 3/4, strata = misstate)
+fraud_split <- initial_split(fraud, prop = 7/10, strata = misstate)
 fraud_split
 
 set.seed(466581)
@@ -121,7 +121,9 @@ xgb_fr_model <-
   set_mode("classification") %>%
   set_engine("xgboost")
 
-
+knn_fr_model <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("kknn")
 
 mlp
 
@@ -154,6 +156,11 @@ svm_fr_wf <- workflow() %>%
 xgb_fr_wf <- workflow() %>%
   add_recipe(fraud_recipe) %>%
   add_model(xgb_fr_model)
+
+knn_fr_wf <-
+  workflow() %>% 
+  add_model(knn_fr_model) %>% 
+  add_recipe(fraud_recipe)
 
 mlp
 
@@ -220,6 +227,9 @@ xgb_fr_tune_metrics %>%
   pivot_wider(trees:learn_rate,
               names_from = .metric,
               values_from = mean)
+
+
+
 
 
 
