@@ -130,7 +130,6 @@ str(fraud_train)
 xgb_nonbenf_tune_metrics <- xgb_nonbenf_tune_results %>%
   collect_metrics()
 
-write.csv(xgb_nonbenf_tune_metrics, " xgb_nonbenf_tune.csv")
 
 
 xgb_nonbenf_tune_metrics %>%
@@ -174,7 +173,7 @@ xgb_nonbenf_final_fit %>%
 
 xgb_nonbenf_final_df <- as.data.frame(xgb_nonbenf_final_fit %>% collect_metrics())
                                  
-write.csv(xgb_nonbenf_final_df, "xgb_nonbenf_test_results.csv")
+write.csv(xgb_nonbenf_final_df, "xgb_nonbenf_res.csv")
                                  
                                       
 xgb_nonbenf_final_fit %>% collect_predictions() %>%
