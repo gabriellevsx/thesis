@@ -10,50 +10,51 @@ library("themis")
 library("xgboost")
 library(vip)
 
+library(dplyr)
+
 
 #########################
 # Preparing the dataset #
 #########################
 
-fraud <- read.csv("fraud_data.csv")
-benford <- read.csv("frd_bf.csv")
+fraud <- read.csv("final_data.csv") %>% select(-X)
+str(fraud)
 
 
 fraud$misstate <- as.factor(fraud$misstate)
-fraud$fyear <- as.factor(fraud$fyear)
+fraud$bf_1 <- as.factor(fraud$bf_1)
+fraud$bf_2 <- as.factor(fraud$bf_2)
+fraud$bf_3 <- as.factor(fraud$bf_3)
+fraud$bf_agr <- as.factor(fraud$bf_agr)
+fraud$fyear <- as.factor(as.character(fraud$fyear))
+fraud$period <- as.factor(fraud$period)
 fraud$sich <- as.factor(fraud$sich)
 fraud$gvkey <- as.character(fraud$gvkey)
 
-benford$misstate <- as.factor(benford$misstate)
-benford$fyear <- as.factor(benford$fyear)
-benford$sich <- as.factor(benford$sich)
-benford$gvkey <- as.character(benford$key_id)
-benford[45:68] <- lapply(benford[45:68], as.numeric)
 
 
-library(dplyr)
-fraud <- fraud %>% select(-gvkey, -sich)
-benford <- benford[complete.cases(benford),] %>% select(-X, -key_id, -gvkey, -sich)
+nonbenf <- fraud %>% select(-gvkey, -sich, -bf_1, -bf_2, -bf_3, -bf_agr)
+benf <- fraud %>% select( -gvkey, -sich)
 
 
 # split the data into trainng (75%) and testing (25%)
 set.seed(466581)
-fraud_split <- initial_split(fraud, prop = 7/10, strata = misstate)
-fraud_split
+nonbenf_split <- initial_split(nonbenf, prop = 7/10, strata = misstate)
+nonbenf_split
 
 set.seed(466581)
-benford_split <- initial_split(benford,prop = 3/4, strata = misstate)
+benford_split <- initial_split(benf,prop = 3/4, strata = misstate)
 benford_split
 
 # extract training and testing sets
-fraud_train <- training(fraud_split)
-fraud_test <- testing(fraud_split)
+nonbenf_train <- training(nonbenf_split)
+nonbenf_test <- testing(nonbenf_split)
 
 benford_train <- training(benford_split)
 benford_test <- testing(benford_split)
 
 # create validation set
-fraud_cv <- vfold_cv(fraud_train, strata = misstate)
+nonbenf_cv <- vfold_cv(nonbenf_train, strata = misstate)
 
 benford_cv<- vfold_cv(benford_train)
 
@@ -64,12 +65,9 @@ benford_cv<- vfold_cv(benford_train)
 #note: could not use step_rose because too few oberve
 #note: xgb requires dummy, imput, but not normalize
 
-
-
-
-fraud_recipe <-  recipe(misstate ~., data = fraud_train) %>%
+nonbenf_recipe <-  recipe(misstate ~., data = nonbenf_train) %>%
   step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
-                 ni, ppe, pstk, re, receiv, sale) %>% step_dummy(fyear)%>%
+                 ni, ppe, pstk, re, receiv, sale) %>% step_dummy(fyear, period)%>%
   step_other(all_nominal(), -all_outcomes(), threshold = 0.01) %>%
   step_downsample(misstate) %>%
   step_impute_knn(all_predictors())
@@ -81,7 +79,7 @@ fraud_recipe <-  recipe(misstate ~., data = fraud_train) %>%
 # fraud data
 
 
-xgb_fr_model <-
+xgb_nonbenf_model <-
   boost_tree(trees = tune(), tree_depth = tune(),
              learn_rate = tune(), stop_iter = 500) %>%
   set_mode("classification") %>%
@@ -94,9 +92,9 @@ xgb_fr_model <-
 
 # fraud data
 
-xgb_fr_wf <- workflow() %>%
-  add_recipe(fraud_recipe) %>%
-  add_model(xgb_fr_model)
+xgb_nonbenf_wf <- workflow() %>%
+  add_recipe(nonbenf_recipe) %>%
+  add_model(xgb_nonbenf_model)
 
 
 #######################
@@ -118,8 +116,8 @@ xgb_grid <- expand.grid(trees = 500 * 1:20,
                         learn_rate = c(0.1, 0.01),
                         tree_depth = 1:5)
 
-xgb_fr_tune_results <- tune_grid(
-  xgb_fr_wf,
+xgb_nonbenf_tune_results <- tune_grid(
+  xgb_nonbenf_wf,
   resamples = fraud_cv,
   grid = xgb_grid,
   metrics = class_metrics
@@ -129,19 +127,19 @@ xgb_fr_tune_results$.notes
 
 str(fraud_train)
 
-xgb_fr_tune_metrics <- xgb_fr_tune_results %>%
+xgb_nonbenf_tune_metrics <- xgb_nonbenf_tune_results %>%
   collect_metrics()
 
-write.csv(xgb_fr_tune_metrics, " xgb_fr_tune.csv")
+write.csv(xgb_nonbenf_tune_metrics, " xgb_nonbenf_tune.csv")
 
 
-xgb_fr_tune_metrics %>%
+xgb_nonbenf_tune_metrics %>%
   filter(.metric %in% c("accuracy", "sens", "spec")) %>%
   ggplot(aes(x = trees, y = mean, colour = .metric)) +
   geom_path() +
   facet_wrap(learn_rate ~ tree_depth)
 
-xgb_fr_tune_metrics %>%
+xgb_nonbenf_tune_metrics %>%
   filter(tree_depth >= 4, learn_rate == 0.01, trees >= 2000 & trees <= 5000) %>%
   select(trees:learn_rate, .metric, mean) %>%
   pivot_wider(trees:learn_rate,
@@ -156,14 +154,11 @@ xgb_fr_tune_metrics %>%
 # fraud data
 #-------------
 
-#xgb
-
-save(xgb_fr_tune_results)
-
-xgb_fr_best <- xgb_fr_tune_metrics %>%
+xgb_nonbenf_best <- xgb_nonbenf_tune_metrics %>%
   filter(.metric == "sens", tree_depth == 4, learn_rate == 0.01, trees == 4500)
-xgb_fr_final_wf <- finalize_workflow(xgb_fr_wf, xgb_fr_best)
-xgb_fr_final_wf
+
+xgb_nonbenf_final_wf <- finalize_workflow(xgb_nonbenf_wf, xgb_nonbenf_best)
+xgb_nonbenf_final_wf
 
 
 
@@ -171,35 +166,34 @@ xgb_fr_final_wf
 # Test on test set
 #------------------
 
-xgb_fr_final_fit <- xgb_fr_final_wf %>%
-  last_fit(fraud_split, metrics = class_metrics)
+xgb_nonbenf_final_fit <- xgb_nonbenf_final_wf %>%
+  last_fit(nonbenf_split, metrics = class_metrics)
 
-xgb_fr_final_fit %>%
+xgb_nonbenf_final_fit %>%
   collect_metrics()
 
-xgb_fr_final_df <- as.data.frame(xgb_fr_final_fit %>% collect_metrics())
+xgb_nonbenf_final_df <- as.data.frame(xgb_nonbenf_final_fit %>% collect_metrics())
                                  
-write.csv(xgb_fr_final_df, "gxb_fr_test_results.csv")
+write.csv(xgb_nonbenf_final_df, "xgb_nonbenf_test_results.csv")
                                  
                                       
-xgb_fr_final_fit %>% collect_predictions() %>%
+xgb_nonbenf_final_fit %>% collect_predictions() %>%
                                    conf_mat(truth = misstate, estimate = .pred_class)
                                  
-                                 xgb_fr_final_fit %>% collect_predictions() %>%
+xgb_nonbenf_final_fit %>% collect_predictions() %>%
                                    roc_curve(misstate, .pred_1) %>%
                                    autoplot()
                                  
-                                 xgb_fr_final_fit %>% collect_predictions() %>%
+xgb_nonbenf_final_fit %>% collect_predictions() %>%
                                    lift_curve(misstate, .pred_1)%>%
                                    autoplot()
                                  
-                                 xgb_fr_final_fit %>% collect_predictions() %>%
+xgb_nonbenf_final_fit %>% collect_predictions() %>%
                                    gain_curve(misstate, .pred_1) %>%
                                    autoplot()
                                  
                                  
-                                 xgb_fr_final_wf %>%
-                                   fit(data = fraud_train) %>%
+xgb_nonbenf_final_wf %>% fit(data = fraud_train) %>%
                                    pull_workflow_fit() %>%
                                    vip(geom = "point")
                                  
