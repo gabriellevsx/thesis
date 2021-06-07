@@ -12,6 +12,7 @@ Multiple packages are needed to run the KNN regression and classification.
 ```{r load-packages, message=FALSE}
 library("tidyverse")
 library("tidymodels")
+library("themis")
 library("kknn")
 library("dplyr")
 library("readr")
@@ -20,23 +21,15 @@ library("readr")
 The dataset also must be loaded.
 
 ```{r}
-data_frame <- read.csv("fraud_data.csv")
+fraud <- read.csv("fraud_data.csv")
 
-data_frame$misstate <- as.factor(data_frame$misstate)
-data_frame$fyear <- as.factor(data_frame$fyear)
-data_frame$sich <- as.factor(data_frame$sich)
-data_frame$key_id <- as.factor(data_frame$key_id)
+fraud$misstate <- as.factor(fraud$misstate)
+fraud$fyear <- as.factor(fraud$fyear)
+fraud$sich <- as.character(fraud$sich)
+fraud$gvkey <- as.character(fraud$gvkey)
 
-str(data_frame)
+fraud <- fraud[complete.cases(fraud),] %>% select(-gvkey, -sich)
 
-data_sample <- data_frame[sample(nrow(data_frame), 50000), ]
-```
-
-
-```{r}
-data_frame <- data_frame[complete.cases(data_frame),]
-
-data_sample <- data_sample[complete.cases(data_sample),]
 ```
 
 
@@ -53,12 +46,11 @@ Let's start by creating a train-test split. To ensure that the splits are the sa
 
 ```{r}
 set.seed(466581)
-fr_split <- initial_split(data = data_sample, prop = 0.7, 
-                          strata = "misstate")
-fr_train <- training(fr_split)
-fr_test <- testing(fr_split)
+fraud_split <- initial_split(fraud, prop = 7/10, strata = misstate)
 
-rm(data_frame)
+fraud_train <- training(fraud_split)
+fraud_test <- testing(fraud_split)
+
 ```
 
 We know have two data set, a training sets containing `r nrow(fr_train)` observations and a test set with `r nrow(fr_test)` observations. 
@@ -69,8 +61,9 @@ The K-Nearat Neighbours regression contains a hyperparamter, the number of neigh
 Here we have a tuning or hyperparameter that we need to select before we are ready for training. We can achieve this by adding a validation split to what we called our training split above. In this section, our original training split will be split into an even smaller training set, and a validation set. Let's keep 70% of the original training data as training set here, and the remainder as validation set for selecting the number of neighbours, $k$:
 
 ```{r}
-set.seed(91231)
-fr_valid <- validation_split(fr_train, prop = 7/10, strata = misstate)
+set.seed(466581)
+fraud_cv <- vfold_cv(fraud_train, strata = misstate)
+
 ```
 
 ### Setting up a tuning grid
@@ -79,7 +72,7 @@ To tune the hyperparameter $k$, we also need a tuning grid. A tuning grid is a d
 
 
 ```{r}
-knn_regr_tune_grid <- tibble(neighbors = 1:6*2 - 1)
+knn_regr_tune_grid <- tibble(neighbors = 1:15*2 - 1)
 knn_regr_tune_grid
 ```
 
@@ -89,7 +82,7 @@ To begin with, I specific the model, the mode (here, classification), and the co
 
 
 ```{r}
-knn_regr_mod <- nearest_neighbor(neighbors = tune()) %>% 
+knn_fr_model <- nearest_neighbor(neighbors = tune()) %>% 
   set_mode("classification") %>% 
   set_engine("kknn")
 ```
@@ -98,52 +91,29 @@ In the next step, I specify the recipe of the workflow, which is how the data wi
 
 
 ```{r}
-knn_regr_recipe <- 
-  recipe(misstate ~ ., data = fr_train) %>% 
-  step_normalize(all_numeric_predictors()) %>%
-  step_downsample(misstate)
+fraud_recipe <-  recipe(misstate ~., data = fraud_train) %>%
+  step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
+                 ni, ppe, pstk, re, receiv, sale) %>% step_dummy(fyear)%>%
+  step_other(all_nominal(), -all_outcomes(), threshold = 0.01) %>%
+  step_downsample(misstate) %>% 
+  step_impute_knn(all_predictors())
 
-knn_regr_recipe
+
 ```
 
 
 ################# rewrite the text from here
-Let's see whether we can understand this better. We can prepare the recipe by calculating the quantities needed in the steps using `prep()`, and then we can apply this to a potentially different data set using `bake()`. Let's see what this looks like:
-
-```{r}
-fr_train_baked <- knn_regr_recipe %>% prep(fr_train) %>% bake(fr_train)
-fr_train_baked %>% head()
-
-
-
-```
-As you can see, the three features have now been transformed, such that (for example) we have:
-
-```{r}
-
-#c(mean = mean(ads_train_baked$TV), 
- # sd = sd(ads_train_baked$TV))
-```
-
-
-This is very important because it allows us to apply the recipe prepared on the training data to the test data. It avoids a common form of data leakage, where data preparations induce dependencies between the train and test sets.
 
 Finally, the workflow object is then just
 ```{r}
-knn_regr_workflow <-
-  workflow() %>% 
-  add_model(knn_regr_mod) %>% 
-  add_recipe(knn_regr_recipe)
+knn_fr_wf <- workflow() %>% 
+  add_model(knn_fr_model) %>% 
+  add_recipe(fraud_recipe)
 ```
 We are now ready to tune our k-NN regression model using this workflow:
 
 ```{r}
-knn_regr_workflow
-```
-
-Let's remove the `ads_train_baked` object we do not need:
-```{r}
-rm(fr_train_baked)
+knn_fr_wf
 ```
 
 ### Tuning the number of nearest neighbours
@@ -151,17 +121,14 @@ rm(fr_train_baked)
 We perform a grid search over the grid of potential values, using our validation set, as follows:
 
 ```{r}
+class_metrics <- metric_set(accuracy, kap, sensitivity, 
+                            specificity, roc_auc)
 
-gc()
-
-memory.size()
-memory.limit()
-memory.limit(size = 56000)
-
-knn_regr_tune_res <- knn_regr_workflow %>% 
-  tune_grid(resamples = fr_valid, 
+knn_fr_tune_res <- knn_fr_wf %>% 
+  tune_grid(resamples = fraud_cv, 
             grid = knn_regr_tune_grid,
-            metrics = metric_set(accuracy, roc_auc, kap))
+            metrics = class_metrics)
+
 
 ```
 
@@ -170,13 +137,18 @@ Here we have specified that we want to calculate the root mean squared error, th
 The metrics can be collected as follows:
 
 ```{r}
-knn_regr_tune_res %>% collect_metrics()
+knn_fr_tune_metrics <- knn_fr_tune_res %>%
+  collect_metrics()
+
+
+save(knn_fr_tune_metrics, file = "knn_fr_tune_metric.RData")
+
 ```
 
 We can now plot them directly too, as we do here:
 
 ```{r}
-knn_regr_tune_res %>% collect_metrics() %>% 
+knn_fr_tune_metrics %>% 
   ggplot(aes(x = neighbors, y = mean)) + 
   geom_point() + geom_line() + 
   facet_wrap(~ .metric, scales = "free_y")
