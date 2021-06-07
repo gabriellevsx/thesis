@@ -21,14 +21,24 @@ library("readr")
 The dataset also must be loaded.
 
 ```{r}
-fraud <- read.csv("fraud_data.csv")
+fraud <- read.csv("final_data.csv") %>% select(-X)
+str(fraud)
+
 
 fraud$misstate <- as.factor(fraud$misstate)
-fraud$fyear <- as.factor(fraud$fyear)
-fraud$sich <- as.character(fraud$sich)
+fraud$bf_1 <- as.factor(fraud$bf_1)
+fraud$bf_2 <- as.factor(fraud$bf_2)
+fraud$bf_3 <- as.factor(fraud$bf_3)
+fraud$bf_agr <- as.factor(fraud$bf_agr)
+fraud$fyear <- as.factor(as.character(fraud$fyear))
+fraud$period <- as.factor(fraud$period)
+fraud$sich <- as.factor(fraud$sich)
 fraud$gvkey <- as.character(fraud$gvkey)
 
-fraud <- fraud[complete.cases(fraud),] %>% select(-gvkey, -sich)
+
+
+nonbenf <- fraud %>% select(-gvkey, -sich, -bf_1, -bf_2, -bf_3, -bf_agr)
+benf <- fraud %>% select( -gvkey, -sich)
 
 ```
 
@@ -45,15 +55,24 @@ Let's start by creating a train-test split. To ensure that the splits are the sa
 
 
 ```{r}
+# split the data into trainng (75%) and testing (25%)
 set.seed(466581)
-fraud_split <- initial_split(fraud, prop = 7/10, strata = misstate)
+nonbenf_split <- initial_split(nonbenf, prop = 7/10, strata = misstate)
+nonbenf_split
 
-fraud_train <- training(fraud_split)
-fraud_test <- testing(fraud_split)
+set.seed(466581)
+benf_split <- initial_split(benf,prop = 3/4, strata = misstate)
+benf_split
+
+# extract training and testing sets
+nonbenf_train <- training(nonbenf_split)
+nonbenf_test <- testing(nonbenf_split)
+
+benf_train <- training(benf_split)
+benf_test <- testing(benf_split)
+
 
 ```
-
-We know have two data set, a training sets containing `r nrow(fr_train)` observations and a test set with `r nrow(fr_test)` observations. 
 
 
 The K-Nearat Neighbours regression contains a hyperparamter, the number of neighbours, $k$,  which needed to be tuned in order to improve the performance of the model. To do so, a validation set is created, with 30% of the observations from the training set. 
@@ -61,9 +80,10 @@ The K-Nearat Neighbours regression contains a hyperparamter, the number of neigh
 Here we have a tuning or hyperparameter that we need to select before we are ready for training. We can achieve this by adding a validation split to what we called our training split above. In this section, our original training split will be split into an even smaller training set, and a validation set. Let's keep 70% of the original training data as training set here, and the remainder as validation set for selecting the number of neighbours, $k$:
 
 ```{r}
-set.seed(466581)
-fraud_cv <- vfold_cv(fraud_train, strata = misstate)
+# create validation set
+nonbenf_cv <- vfold_cv(nonbenf_train, strata = misstate)
 
+benf_cv<- vfold_cv(benf_train)
 ```
 
 ### Setting up a tuning grid
@@ -72,8 +92,8 @@ To tune the hyperparameter $k$, we also need a tuning grid. A tuning grid is a d
 
 
 ```{r}
-knn_regr_tune_grid <- tibble(neighbors = 1:15*2 - 1)
-knn_regr_tune_grid
+knn_nonbenf_tune_grid <- tibble(neighbors = 1:15*2 - 1)
+knn_nonbenf_tune_grid
 ```
 
 ### Specifying a workflow
@@ -82,7 +102,7 @@ To begin with, I specific the model, the mode (here, classification), and the co
 
 
 ```{r}
-knn_fr_model <- nearest_neighbor(neighbors = tune()) %>% 
+knn_nonbenf_model <- nearest_neighbor(neighbors = tune()) %>% 
   set_mode("classification") %>% 
   set_engine("kknn")
 ```
@@ -95,124 +115,103 @@ fraud_recipe <-  recipe(misstate ~., data = fraud_train) %>%
   step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
                  ni, ppe, pstk, re, receiv, sale) %>% step_dummy(fyear)%>%
   step_other(all_nominal(), -all_outcomes(), threshold = 0.01) %>%
+  step_zv(all_predictors())%>%
   step_downsample(misstate) %>% 
   step_impute_knn(all_predictors())
 
 
 ```
 
-
-################# rewrite the text from here
-
-Finally, the workflow object is then just
+The workflow can then be created, combining the model and the recipe specified above.
 ```{r}
 knn_fr_wf <- workflow() %>% 
   add_model(knn_fr_model) %>% 
   add_recipe(fraud_recipe)
 ```
-We are now ready to tune our k-NN regression model using this workflow:
 
-```{r}
-knn_fr_wf
-```
 
 ### Tuning the number of nearest neighbours
 
-We perform a grid search over the grid of potential values, using our validation set, as follows:
+The model below will perform a grid search over the tuning grid created above.
 
 ```{r}
 class_metrics <- metric_set(accuracy, kap, sensitivity, 
                             specificity, roc_auc)
 
-knn_fr_tune_res <- knn_fr_wf %>% 
-  tune_grid(resamples = fraud_cv, 
-            grid = knn_regr_tune_grid,
+knn_nonbenf_tune_res <- knn_nobenf_wf %>% 
+  tune_grid(resamples = nonbegnf_cv, 
+            grid = knn_nonbenf_tune_grid,
             metrics = class_metrics)
 
 
 ```
 
-Here we have specified that we want to calculate the root mean squared error, the $R^2$ value, and the mean absolute error for the validation set predictions. Always use multiple metrics, since it can point out important issues with the data.
-
-The metrics can be collected as follows:
+We specified metrics that are specific to the evaluation of (binary) classification models. 
 
 ```{r}
-knn_fr_tune_metrics <- knn_fr_tune_res %>%
+knn_nonbenf_tune_metrics <- knn_nonbenf_tune_res %>%
   collect_metrics()
-
-
-save(knn_fr_tune_metrics, file = "knn_fr_tune_metric.RData")
 
 ```
 
-We can now plot them directly too, as we do here:
+These metrics can also be plotted. 
 
 ```{r}
-knn_fr_tune_metrics %>% 
+knn_nonbenf_tune_metrics %>% 
   ggplot(aes(x = neighbors, y = mean)) + 
   geom_point() + geom_line() + 
   facet_wrap(~ .metric, scales = "free_y")
 ```
-Therefore, using this validation set, we can see that $k = 7$ is the best choice using all three these metrics. Here are the top three options by RMSE:
+
 
 ```{r}
-knn_regr_tune_res %>% 
-  show_best("rmse", n = 3) %>% 
+knn_nonbenf_tune_res %>% 
+  show_best("roc_auc", n = 3) %>% 
   arrange(neighbors)
 ```
+From the graphs above, we must choose the optimal number of neighbors for our model. 
 
-Luckily for us, there is little ambiguity, and in the absence of other concerns in this example, we can proceed to finalize our model workflow.
+```{r}
+autoplot(knn_nonbenf_tune_res)
+```
+
+
+
 
 ### Finalizing our workflow
 
 We conclude the tuning process by finalizing our workflow as follows:
 
 ```{r}
-knn_regr_best_model <- select_best(knn_regr_tune_res, metric = "rmse")
+knn_nonbenf_best_model <- select_best(knn_nonbenf_tune_res, metric = "roc_auc")
 
-knn_regr_workflow_final <- 
-  knn_regr_workflow %>% 
-  finalize_workflow(knn_regr_best_model)
+knn_nonbenf_workflow_final <- 
+  knn_nonbenf_workflow %>% 
+  finalize_workflow(knn_nonbenf_best_model)
 ```
 
-If we want to retrain on the entire training set, we could do:
 
-```{r}
-knn_regr_workflow_final %>% fit(data = ads_train)
-```
+## Results on test set
 
-But this does not give us the results on the test set (although we could do the work ourselves using `predict()` with the result of this fit). To do that, we can use `last_fit()`, as we will do in the next section when we pit this model against our linear regression model. 
+Now that our model has been tuned, we can test its performance on the test set. 
 
-## Selecting between linear regression and k-nearest neighbours
-
-We will now use the test set to select the best between these two models. Lets do that for the linear regression model first:
-
-```{r}
-lm_last_fit <- lm_mod_workflow %>% 
-  last_fit(ads_splits, metrics = metric_set(rmse, mae, rsq_trad))
-```
-
-The performance on the test set for this model is
-
-```{r}
-lm_metrics <- lm_last_fit %>% collect_metrics()
-lm_metrics
-```
-
-We can do the same to train and test the selected k-NN model:
 
 ```{r echo=TRUE}
-knn_regr_last_fit <- knn_regr_workflow_final %>% 
-  last_fit(ads_splits, 
-           metrics = metric_set(rmse, mae, rsq_trad))
+knn_nonbenf_last_fit <- knn_nonbenf_workflow_final %>% 
+  last_fit(nonbenf_split, 
+           metrics = metric_set(accuracy, kap, sensitivity, 
+                            specificity, roc_auc))
 ```
 
 Importantly, note that we now use the original train-test split in `last_fit()`. We can collect the same metrics as:
 
 ```{r}
-knn_regr_metrics <- knn_regr_last_fit %>% 
+knn_nonbenf_metrics <- knn_nonbenf_last_fit %>% 
   collect_metrics()
-knn_regr_metrics
+
+knn_nonbenf_metrics
+
+write.csv(knn_nonbenf_metrics, "knn_nonbenf_res.csv")
 ```
 
 We can get these into a single object with some transformations:
@@ -233,276 +232,4 @@ Clearly, the k-NN model is better *on average* using all three these metrics. If
 lm_last_fit %>% collect_predictions()
 ```
 
-# Classification
-
-In this section, we will consider how to train and test a model for binary classification using **tidymodels**. 
-
-## Predicting credit card defaults
-
-We will work with the `Default` data set, also from the ISLR book. The aim is to predict whether or not a new customer will default on his or her credit card debt. There are, again, only three features to work with. These are:
-
-* `student`: Whether a person is a student or not
-* `balance`: The monthly credit card balance
-* `income`: Annual income
-
-Note that one of these are nominal, and we should therefore create dummy variables for it in our preprocessing recipe. This can be done using `step_dummy()`.
-
-In this case, the data is stored in an RData file, so we can simply `load()` it:
-
-```{r}
-load("Default.RData")
-```
-
-Here are the first few lines from the data:
-
-```{r}
-head(Default)
-```
-
-The target variable is `default`, and there is significant class imbalance. Calculate the proportion of observation of each class:
-
-```{r}
-Default %>% count(default) %>% 
-  mutate(prop = n / sum(n))
-```
-
-A density plot showing the class separation for the numeric features are shown below:
-
-```{r}
-ggplot(Default, aes(x = income, fill = default)) + 
-  geom_density(alpha = 0.5)
-ggplot(Default, aes(x = balance, fill = default)) + 
-  geom_density(alpha = 0.5)
-```
-
-The following table shows the distribution of `student` within each category of `default`:
-
-```{r}
-Default %>% 
-  count(default, student) %>% 
-  group_by(default) %>% 
-  mutate(prop = n / sum(n))
-```
-
-The following plot shows both `balance` and `income`:
-
-```{r}
-ggplot(Default, aes(x = balance, y = income, colour = default)) + 
-  geom_point(alpha = 0.5)
-```
-
-It seems that the strongest class differentiation comes from `balance`.
- 
-## Creating a Train-Test Split
-
-Create a *stratified* train-test split on this data. Use the `strata` argument in `initial_split()`. Keep 70% for training.
-
-```{r}
-set.seed(982348)
-Default_splits <- initial_split(Default, prop = 0.7, strata = default)
-```
-
-Extract the train and test sets:
-
-```{r}
-Default_train <- training(Default_splits)
-Default_test <- testing(Default_splits)
-```
-
-**8Calculate the class proportions for the train and test sets to see that it worked:**
-
-```{r}
-Default_train %>% 
-  count(default) %>% 
-  mutate(prop = n / sum(n))
-
-Default_test %>% 
-  count(default) %>% 
-  mutate(prop = n / sum(n))
-
-```
-
-Why do we need a stratified split? we want to have the same proportions of default and non-default in both the training and test sets.
-
-## Logistic regression
-
-Set up a workflow for performing logistic regression on this data set.
-
-Start by specifying the model:
-
-```{r}
-lr_mod <- logistic_reg() %>% 
-  set_engine("glm")
-```
-
-Now specify a recipe for handling the data. Use `step_dummy()` for the nominal feature. We do not need any other transformations for this model.
-
-**Do this yourself now:**
-
-```{r}
-lr_mod_recipe <- recipe(default ~ student + income, data = Default_train) %>% 
-  step_dummy(student)
-```
-
-**Combine these into a workflow:**
-
-```{r}
-lr_mod_workflow <- 
-  workflow() %>% 
-  add_model(lr_mod) %>% 
-  add_recipe(lr_mod_recipe)
-```
-
-If we want, we can fit this as follows:
-
-```{r}
-lr_mod_workflow %>% fit(data = Default_train)
-```
-
-But we will use `last_fit()` below to train and test in one go. We are now ready for the logistic regression model with main effects, and we can proceed to the k-NN classifier.
- 
-## k-nearest Neighbours Classification
-
-### Adding a validation split
-
-Here we have a tuning or hyperparameter that we need to select before we are ready for training. We can achieve this by adding a validation split to what we called our training split above. In this section, our original training split will be split into an even smaller training set, and a validation set. Let's keep 70% of the original training data as training set here, and the remainder as validation set for selecting the number of neighbours, $k$:
-
-```{r}
-set.seed(914231)
-Default_train_val <- validation_split(Default_train, strata = default, prop = 0.5)
-```
-Now we have a validation set split:
-
-```{r}
-Default_train_val
-```
-### Setting up a tuning grid
-
-We might will need larger values of k than before (since the number of observations is higher too), so let's try:
-
-```{r}
-knn_class_tune_grid <- tibble(neighbors = 5:25*2 + 1)
-knn_class_tune_grid
-```
-
-### Specifying a workflow
-
-First, we specify the model, its mode (such as regression or classification), and the computational engine.
-
-**Do this yourself now:**
-
-```{r}
-knn_class_mod <- nearest_neighbor(neighbors = tune()) %>% 
-  set_mode("classification") %>% 
-  set_engine("kknn")
-```
-
-For the recipe, we can make a variety of choices. Let's keep it simple and use only the two numeric features, normalized.
-
-**Do this yourself now:**
-
-```{r}
-knn_class_recipe <- 
-  recipe(default ~ balance + income, 
-                        data = Default_train) %>% 
-  step_normalize(balance, income)
-```
-
-Here is an overview of the recipe:
-
-```{r}
-knn_class_recipe
-```
-
-Let's see whether we can understand this better. We can prepare the recipe by calculating the quantities needed in the steps using `prep()`, and then we can apply this to a potentially different data set using `bake()`. Let's see what this looks like:
-
-```{r}
-Default_train_baked <- knn_class_recipe %>% prep(Default_train) %>% bake(Default_train)
-Default_train_baked %>% head()
-```
-As you can see, only the two features have now been retained and also transformed, such that (for example) we have:
-
-```{r}
-c(mean = mean(Default_train_baked$balance), 
-  sd = sd(Default_train_baked$income))
-```
-
-So the mean is zero (to machine precision) and the standard deviation is one.
-
-**Finally, create the workflow object yourself:**
-```{r}
-knn_class_workflow <-
-  workflow() %>% 
-  add_model(knn_class_mod) %>% 
-  add_recipe(knn_class_recipe)
-```
-We are now ready to tune our k-NN regression model using this workflow:
-
-```{r}
-knn_class_workflow
-```
-
-Let's remove the `Default_train_baked` object we do not need:
-```{r}
-rm(Default_train_baked)
-```
-
-### Tuning the number of nearest neighbours
-
-We perform a grid search over the grid of potential values, using our validation set.
-
-**Do this yourself now:**
-
-```{r}
-knn_class_tune_res <- knn_class_workflow %>% 
-  tune_grid(resamples = Default_train_val, 
-            grid = knn_class_tune_grid,
-            metrics = metric_set(kap, f_meas, bal_accuracy, accuracy))
-```
-
-Here we have specified that we want to calculate Cohen's Kappa, the F-score, the balanced accuracy, and accuracy for the validation set predictions. See the **yardstick** package for the options. Do not worry too much about what these mean: we will come back to them. Let's focus on the how the code works.
-
-The metrics can be collected as follows:
-
-```{r}
-knn_class_tune_res %>% collect_metrics()
-```
-
-We can now plot them directly too, as we do here:
-
-```{r}
-knn_class_tune_res %>% collect_metrics() %>% 
-  ggplot(aes(x = neighbors, y = mean)) + 
-  geom_point() + geom_line() + 
-  facet_wrap(~ .metric, scales = "free_y")
-```
-These give conflicting opinions. Let's stick to accuracy for now, although it has severe limitations, especially when there is class imbalance.
-
-Here are the top three options by accuracy:
-
-```{r}
-knn_class_tune_res %>% 
-  show_best("accuracy", n = 3) %>% 
-  arrange(neighbors)
-```
-if ties, choose the simplest model, which is k = 35. 
-
-
-### Finalizing our workflow
-
-Now finalize your workflow for the k-NN classification model.
-
-```{r}
-## to be completed
-knn_class_workflow_final <- knn_class_workflow 
-
-```
-
-## Selecting between logistic regression and k-nearest neighbours classification
-
-Proceed to determing which of the logistic regression model and the k-NN classifier should be selected.
-
-```{r}
-## to be completed
-```
 
