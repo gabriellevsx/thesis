@@ -240,4 +240,10 @@ ggplot(data_frame, aes(misstate)) +
   geom_bar(fill = "cornflowerblue") 
 
 
+# A density plot showing the class separation for the numeric features are shown below:
+  
+  ggplot(Default, aes(x = income, fill = default)) + 
+  geom_density(alpha = 0.5)
+
+
 
