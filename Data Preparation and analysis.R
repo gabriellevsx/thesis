@@ -193,7 +193,9 @@ write.csv(final_data, "final_data.csv")
 #----------------------------------
 
 # load the data set
-final_data <- read.csv('final_data')
+final_data <- read.csv('final_data.csv')
+
+final_data <- final_data[complete.cases(final_data),]
 
 # dimensions (144083 obs,52 var)
 glimpse(final_data)
@@ -214,10 +216,35 @@ skim(final_data)
 
 DataExplorer::plot_intro(final_data)
 
+install.packages("visdat")
+library(visdat)
+library(dplyr)
+
+
+# missing data
+vis_miss(final_data, sort_miss = TRUE, warn_large_data = FALSE)
+
+is.na(final_data) %>% colSums()
+
+
 summary(final_data)
 
 
 # misstate proportion
+
+
+install.packages("gt")
+library(gt)
+library(tidyverse)
+
+
+final_data %>% 
+  count(misstate, # count observations
+        name ="Fradulent_data") %>%  # name the new variable 
+  mutate(percent = Fradulent_data/sum(Fradulent_data)) %>%  # calculate percentages
+  gt()%>% as_latex %>% as.character()   #
+
+
 table(final_data$misstate)
 
 percentage <- prop.table(table(final_data$misstate)) * 100
@@ -244,6 +271,70 @@ ggplot(data_frame, aes(misstate)) +
   
   ggplot(Default, aes(x = income, fill = default)) + 
   geom_density(alpha = 0.5)
+
+
+#####################
+  # summary
+##################
+  
+library(stargazer)
+
+stargazer(final_data, type = "latex", title = "Descriptive Statistics", summary = TRUE)  
+
+
+# histograms
+
+install.packages("GGally")
+
+library(GGally)
+
+plot <- final_data %>% 
+  select(
+    bf_agr, 
+    misstate, crt_ast, cash, 
+    dpr_amrt, receiv) %>% 
+  ggpairs()
+
+# boxplot numerical variable
+
+str(final_data)
+
+final_data %>% 
+  ggplot(aes(x = misstate, y = ast, 
+             fill = misstate, color = misstate)) +
+  geom_boxplot(alpha=0.4) 
+
+final_data %>% 
+  ggplot(aes(x = misstate, y = dpr_amrt, 
+             fill = misstate, color = misstate)) +
+  geom_boxplot(alpha=0.4) 
+
+final_data %>% 
+  ggplot(aes(x = misstate, y = liab, 
+             fill = misstate, color = misstate)) +
+  geom_boxplot(alpha=0.4) 
+
+
+final_data %>% 
+  ggplot(aes(x = misstate, y = soft_assets, 
+             fill = misstate, color = misstate)) +
+  geom_boxplot(alpha=0.4) 
+
+final_data %>% 
+  ggplot(aes(x = misstate, y = dch_rec, 
+             fill = misstate, color = misstate)) +
+  geom_boxplot(alpha=0.4) 
+
+
+
+# categorical variables
+
+final_data %>%  ggplot(aes(misstate, bf_3)) +
+  geom_bin2d() +
+  scale_fill_continuous(type = "viridis") 
+
+
+
 
 
 
