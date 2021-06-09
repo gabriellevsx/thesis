@@ -15,11 +15,12 @@ library("readr")
 library("glmnet")
 library("kernlab")
 library(themis)
+library(dplyr)
 ```
 
 
 ```{r}
-fraud <- read.csv("final_data.csv") %>% select(-X)
+fraud <- read.csv("final_data.csv") %>% select(-X, -period, -fyear)
 
 ```
 
@@ -30,8 +31,8 @@ fraud$bf_1 <- as.factor(fraud$bf_1)
 fraud$bf_2 <- as.factor(fraud$bf_2)
 fraud$bf_3 <- as.factor(fraud$bf_3)
 fraud$bf_agr <- as.factor(fraud$bf_agr)
-fraud$fyear <- as.factor(as.character(fraud$fyear))
-fraud$period <- as.factor(fraud$period)
+#fraud$fyear <- as.factor(as.character(fraud$fyear))
+#fraud$period <- as.factor(fraud$period)
 fraud$sich <- as.factor(fraud$sich)
 fraud$gvkey <- as.character(fraud$gvkey)
 
@@ -75,8 +76,7 @@ benf_cv<- vfold_cv(benf_train)
 logreg_recipe <- recipe(misstate ~ ., data = nonbenf_train) %>% 
   step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
                  ni, ppe, pstk, re, receiv, sale) %>% 
-  step_rm(period) %>%
-  step_dummy(fyear) %>%
+  #step_rm(period, fyear) %>%
   step_impute_knn(all_predictors()) %>%
   step_downsample(misstate)
 
@@ -84,8 +84,8 @@ logreg_recipe <- recipe(misstate ~ ., data = nonbenf_train) %>%
 logreg_b_recipe <- recipe(misstate ~ ., data = benf_train) %>% 
   step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
                  ni, ppe, pstk, re, receiv, sale) %>% 
-  step_rm(period) %>%
-  step_dummy(fyear, bf_1, bf_2, bf_3, bf_agr) %>%
+  #step_rm(period, fyear) %>%
+  step_dummy(bf_1, bf_2, bf_3, bf_agr) %>%
   step_impute_knn(all_predictors()) %>%
   step_downsample(misstate)
 ```
@@ -155,34 +155,51 @@ ridge_wf_b_tuned
 
 ```{r}
 ridge_last_fit <- ridge_wf_tuned %>% 
-  last_fit(nonbenf_split, metrics = class_metrics)
+  last_fit(nonbenf_split, metrics = mcc)
 
 ridge_last_b_fit <- ridge_wf_b_tuned %>% 
   last_fit(benf_split, metrics = class_metrics)
 
 ridge_test_metrics <- ridge_last_fit %>% collect_metrics()
-ridge_test_metrics
-
 
 ridge_test_b_metrics <- ridge_last_b_fit %>% collect_metrics()
 
+ridge_test_pred <- ridge_last_fit %>% collect_predictions()
 
+ridge_test_b_pred <- ridge_last_b_fit %>% collect_predictions()
+  
+
+nonbenf_pred <- nonbenf_test %>% mutate(ridge_pred = ridge_test_pred$.pred_class)
+benf_pred <- benf_test %>% mutate(ridge_pred = ridge_test_b_pred$.pred_class)
+
+  
+mcc_b_metric <- yardstick::mcc(benf_pred, truth = misstate, estimate = ridge_pred, event_level = "second")
+mcc_nb_metric <- yardstick::mcc(nonbenf_pred, truth = misstate, estimate = ridge_pred, event_level = "second")
+
+
+mcc_b_metric$.estimate
+mcc_nb_metric$.estimate
 
 
 library(vip)
 
 ridge_wf_tuned %>%
-  fit(nonbenf_train) %>%
+  fit(nonbenf_test) %>%
   pull_workflow_fit() %>%
   vi()
 
 
 ridge_wf_b_tuned %>%
-  fit(benf_train) %>%
+  fit(benf_test) %>%
   pull_workflow_fit() %>%
   vi()
 
+conf_mat()
+
 ```
 
+```{r}
+library(yardstick)
+```
 
 

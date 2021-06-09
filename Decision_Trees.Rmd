@@ -121,7 +121,6 @@ tree_nonbenf_recipe
 
 
 tree_benf_recipe <- recipe(misstate ~ ., data = benf_train) %>% 
-  step_dummy(bf_1, bf_2, bf_3, bf_agr) %>%
   step_downsample(misstate)
 
 sum(is.na(nonbenf_train))
@@ -188,7 +187,7 @@ write.csv(tree_benf_tune_metrics, file="tree_benf_tune_metrics.csv")
 The values of $\alpha$ which give a mean estimated sensitivity between 0.65 and 0.75 are:
 
 ```{r}
-tree_metrics_sub <- tree_benf_tune_metrics %>% 
+tree_metrics_sub <- tree_nonbenf_tune_metrics %>% 
   pivot_wider(names_from = ".metric", 
               values_from = c("mean", "std_err")) %>% 
   filter(mean_spec > 0.55, mean_spec < 0.76) %>% 
@@ -203,7 +202,7 @@ Let's select `Model10', which achieves about 71% sensitivity and 67% specificity
 tree_selected <- tree_metrics_sub %>% filter(.config == "Preprocessor1_Model14")
 tree_selected
 
-tree_bf_selected <- tree_metrics_sub %>% filter(.config == "Preprocessor1_Model14")
+tree_bf_selected <- tree_metrics_sub %>% filter(.config == "Preprocessor1_Model16")
 tree_bf_selected
 ```
 
@@ -286,12 +285,12 @@ printcp(rpart_bf_fit)
 We can now prune the tree and plot it. Let's use the tree with 15 splits:
 
 ```{r}
-rpart_pruned <- rpart::prune(rpart_fit, cp = 0.0063)
+rpart_pruned <- rpart::prune(rpart_fit, cp = 0.0040818)
 rpart.plot(rpart_pruned)
 plot(as.party(rpart_pruned))
 
 
-rpart_bf_pruned <- rpart::prune(rpart_bf_fit, cp = 0.006)
+rpart_bf_pruned <- rpart::prune(rpart_bf_fit, cp = 0.0041511)
 rpart.plot(rpart_bf_pruned)
 
 
@@ -317,6 +316,15 @@ rpart_test_bf_metrics <- benf_test %>% mutate(rpart_bf_pred = rpart_bf_test_pred
 write.csv(rpart_test_metrics, "dt_final_nb.csv")
 
 write.csv(rpart_test_bf_metrics, "dt_final_b.csv")
+
+```
+
+```{r}
+mcc_nb_metric <- nonbenf_test %>% mutate(rpart_pred = rpart_test_pred) %>%  yardstick::mcc(nonbenf_test, truth = misstate, estimate = rpart_pred, na_rm = TRUE, event_level = "second")
+
+
+mcc_b_metric  <- benf_test %>% mutate(rpart_bf_pred = rpart_bf_test_pred) %>%
+  yardstick::mcc(truth = misstate, estimate = rpart_bf_pred, event_level = "second")
 
 ```
 
