@@ -1,6 +1,0 @@
-"",".metric",".estimator",".estimate"
-"1","accuracy","binary",0.675102643058763
-"2","kap","binary",0.0158397521253484
-"3","bal_accuracy","binary",0.663047194042538
-"4","sens","binary",0.675300737291424
-"5","spec","binary",0.650793650793651
