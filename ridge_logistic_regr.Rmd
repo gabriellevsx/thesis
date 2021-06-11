@@ -16,6 +16,7 @@ library("glmnet")
 library("kernlab")
 library(themis)
 library(dplyr)
+library(tidyverse)
 ```
 
 
@@ -83,7 +84,7 @@ logreg_recipe <- recipe(misstate ~ ., data = nonbenf_train) %>%
 
 logreg_b_recipe <- recipe(misstate ~ ., data = benf_train) %>% 
   step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
-                 ni, ppe, pstk, re, receiv, sale) %>% 
+                ni, ppe, pstk, re, receiv, sale) %>% 
   #step_rm(period, fyear) %>%
   step_dummy(bf_1, bf_2, bf_3, bf_agr) %>%
   step_impute_knn(all_predictors()) %>%
@@ -107,8 +108,8 @@ logreg_b_wf <- workflow() %>%
 
 grid_ridge <- tibble(penalty = 10^(seq(from = -1, to = 4, length.out = 100)))
 
-class_metrics <- metric_set(accuracy, kap, sensitivity,
-                            specificity, roc_auc)
+class_metrics <- metric_set(accuracy, sensitivity,
+                            specificity, mcc, roc_auc, kap)
 
 ```
 
@@ -136,8 +137,19 @@ autoplot(ridge_b_tune)
 ridge_1se_model <- select_by_one_std_err(ridge_tune, metric = "roc_auc", desc(penalty))
 ridge_1se_model
 
-ridge_1se_b_model <- select_by_one_std_err(ridge_b_tune, metric = "roc_auc", desc(penalty))
+ridge_1se_b_model <- select_by_one_std_err(ridge_b_tune, metric = "mcc", desc(penalty))
 ridge_1se_b_model
+
+
+ridge_b_metrics_sub <- ridge_b_tune %>% collect_metrics() %>% 
+  pivot_wider(names_from = ".metric", 
+              values_from = c("mean", "std_err")) %>% 
+  filter(mean_mcc < 0.55) %>% 
+  arrange(desc(mean_mcc))
+ridge_b_metrics_sub
+
+ridge_bf_selected <- ridge_b_metrics_sub %>% filter(.config == "Preprocessor1_Model037")
+
 
 
 ridge_wf_tuned <- 
@@ -148,14 +160,14 @@ ridge_wf_tuned
 
 ridge_wf_b_tuned <- 
   logreg_b_wf %>% 
-  finalize_workflow(ridge_1se_b_model)
+  finalize_workflow(ridge_bf_selected)
 ridge_wf_b_tuned
 ```
 
 
 ```{r}
 ridge_last_fit <- ridge_wf_tuned %>% 
-  last_fit(nonbenf_split, metrics = mcc)
+  last_fit(nonbenf_split, metrics = class_metrics)
 
 ridge_last_b_fit <- ridge_wf_b_tuned %>% 
   last_fit(benf_split, metrics = class_metrics)
@@ -169,32 +181,49 @@ ridge_test_pred <- ridge_last_fit %>% collect_predictions()
 ridge_test_b_pred <- ridge_last_b_fit %>% collect_predictions()
   
 
-nonbenf_pred <- nonbenf_test %>% mutate(ridge_pred = ridge_test_pred$.pred_class)
-benf_pred <- benf_test %>% mutate(ridge_pred = ridge_test_b_pred$.pred_class)
+nonbenf_pred <- nonbenf_test %>% mutate(ridge_nb_pred = ridge_test_pred$.pred_class)
+benf_pred <- benf_test %>% mutate(ridge_b_pred = ridge_test_b_pred$.pred_class)
 
   
-mcc_b_metric <- yardstick::mcc(benf_pred, truth = misstate, estimate = ridge_pred, event_level = "second")
-mcc_nb_metric <- yardstick::mcc(nonbenf_pred, truth = misstate, estimate = ridge_pred, event_level = "second")
-
+mcc_b_metric <- yardstick::mcc(benf_pred, truth = misstate, estimate = ridge_b_pred, event_level = "second")
+mcc_nb_metric <- yardstick::mcc(nonbenf_pred, truth = misstate, estimate = ridge_nb_pred, event_level = "second")
 
 mcc_b_metric$.estimate
 mcc_nb_metric$.estimate
 
+
+conf_mat(nonbenf_pred, truth = misstate, estimate = ridge_nb_pred)
+
+conf_mat(benf_pred, truth = misstate, estimate = ridge_b_pred)
 
 library(vip)
 
 ridge_wf_tuned %>%
   fit(nonbenf_test) %>%
   pull_workflow_fit() %>%
-  vi()
+  vi()  %>%
+  mutate(
+    Importance = abs(Importance),
+    Variable = fct_reorder(Variable, Importance)
+  ) %>%
+  ggplot(aes(x = Importance, y = Variable, fill = Sign)) +
+  geom_col() +
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(y = NULL)
 
 
 ridge_wf_b_tuned %>%
   fit(benf_test) %>%
   pull_workflow_fit() %>%
-  vi()
-
-conf_mat()
+  vi() %>%
+  mutate(
+    Importance = abs(Importance),
+    Variable = fct_reorder(Variable, Importance)
+  ) %>%
+  ggplot(aes(x = Importance, y = Variable, fill = Sign)) +
+  geom_col() +
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(y = NULL)
 
 ```
 
