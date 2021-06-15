@@ -1,0 +1,232 @@
+---
+title: "k-Nearest Neighbours"
+output:
+  pdf_document: default
+  html_notebook: default
+editor_options:
+  chunk_output_type: inline
+---
+
+Multiple packages are needed to run the KNN regression and classification. 
+
+```{r load-packages, message=FALSE}
+library("tidyverse")
+library("tidymodels")
+library("themis")
+library("kknn")
+library("dplyr")
+library("readr")
+```
+
+The dataset also must be loaded.
+
+```{r}
+pval <- read.csv("pval_data.csv") %>% select(-X, -period, -fyear)
+
+
+pval$misstate <- as.factor(pval$misstate)
+pval$sich <- as.factor(pval$sich)
+pval$gvkey <- as.character(pval$gvkey)
+
+pval <- pval[complete.cases(pval),]
+
+nonbenf <- pval %>% select(-gvkey, -sich, -pval_1st, -pval_2nd, -pval_1st_2nd)
+benf <- pval %>% select( -gvkey, -sich)
+
+
+
+```
+
+
+# Strategy
+
+The objective of this model is to predict whether observations can be identified as potentially fraudulent or not. To begin with, the dataset must be split between a training and a test sets. The same sets will be used for the three models run in this report. The three models will be trained on the same training set, and their performance on the same test set will be compared. 
+
+However, because the K-NN algorithm requires its hyperparameters to be tuned, the training set must here be further splits between a training subset and a validation subset.
+
+## Creating a Train-Test Split and a validation set
+
+Let's start by creating a train-test split. To ensure that the splits are the same for all three models, the same seed will be set for each split. In this split, about 70% of the observations are used for training while the remaining 30% will be used to test the models. 
+
+
+```{r}
+# split the data into trainng (70%) and testing (30%)
+set.seed(466581)
+nonbenf_split <- initial_split(nonbenf, prop = 7/10, strata = misstate)
+nonbenf_split
+
+set.seed(466581)
+benf_split <- initial_split(benf,prop = 7/10, strata = misstate)
+benf_split
+
+# extract training and testing sets
+nonbenf_train <- training(nonbenf_split)
+nonbenf_test <- testing(nonbenf_split)
+
+benf_train <- training(benf_split)
+benf_test <- testing(benf_split)
+
+
+```
+
+
+The K-Nearat Neighbours regression contains a hyperparamter, the number of neighbours, $k$,  which needed to be tuned in order to improve the performance of the model. To do so, a validation set is created, with 30% of the observations from the training set. 
+
+Here we have a tuning or hyperparameter that we need to select before we are ready for training. We can achieve this by adding a validation split to what we called our training split above. In this section, our original training split will be split into an even smaller training set, and a validation set. Let's keep 70% of the original training data as training set here, and the remainder as validation set for selecting the number of neighbours, $k$:
+
+```{r}
+# create validation set
+nonbenf_cv <- vfold_cv(nonbenf_train, strata = misstate)
+
+benf_cv<- vfold_cv(benf_train)
+```
+
+### Setting up a tuning grid
+
+To tune the hyperparameter $k$, we also need a tuning grid. A tuning grid is a data frame containing several values of $k$ for which we want to try our model. 
+
+
+```{r}
+knn_nonbenf_tune_grid <- tibble(neighbors = 1:15*2 - 1)
+knn_nonbenf_tune_grid
+```
+
+### Specifying a workflow
+
+To begin with, I specific the model, the mode (here, classification), and the computational engine ("knn") of the workflow. 
+
+
+```{r}
+knn_nonbenf_model <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("kknn")
+
+knn_benf_model <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("kknn")
+```
+
+In the next step, I specify the recipe of the workflow, which is how the data will be handled by the model. Because k-nearest neighbours algorithm is based on distance calculation, it is necessary to normalize the numeric features in our model.
+
+
+```{r}
+nonbenf_recipe <-  recipe(misstate ~., data = nonbenf_train) %>%
+  step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
+                 ni, ppe, pstk, re, receiv, sale) %>% 
+  step_other(all_nominal(), -all_outcomes(), threshold = 0.01) %>%
+  step_zv(all_predictors())%>%
+  step_SMOTE(misstate) %>% 
+  step_impute_knn(all_predictors())
+
+benf_recipe <-  recipe(misstate ~., data = benf_train) %>%
+  step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
+                 ni, ppe, pstk, re, receiv, sale) %>% 
+  step_other(all_nominal(), -all_outcomes(), threshold = 0.01) %>%
+  step_zv(all_predictors())%>%
+  step_SMOTE(misstate) %>% 
+  step_impute_knn(all_predictors())
+
+
+```
+
+The workflow can then be created, combining the model and the recipe specified above.
+```{r}
+knn_nonbenf_wf <- workflow() %>% 
+  add_model(knn_nonbenf_model) %>% 
+  add_recipe(nonbenf_recipe)
+
+knn_benf_wf <- workflow() %>% 
+  add_model(knn_benf_model) %>% 
+  add_recipe(benf_recipe)
+```
+
+
+### Tuning the number of nearest neighbours
+
+The model below will perform a grid search over the tuning grid created above.
+
+```{r}
+class_metrics <- metric_set(mcc, accuracy, sensitivity, 
+                            specificity)
+
+knn_nonbenf_tune_res <- knn_nonbenf_wf %>% 
+  tune_grid(resamples = nonbenf_cv, 
+            grid = knn_nonbenf_tune_grid,
+            metrics = class_metrics)
+
+knn_benf_tune_res <- knn_benf_wf %>% 
+  tune_grid(resamples = benf_cv, 
+            grid = knn_nonbenf_tune_grid,
+            metrics = class_metrics)
+
+
+```
+
+
+
+```{r}
+knn_nonbenf_tune_metrics <- knn_nonbenf_tune_res %>%
+  collect_metrics()
+
+knn_benf_tune_metrics <- knn_benf_tune_res %>%
+  collect_metrics()
+
+```
+
+
+From the graphs below, the optimal number of neighbors for our model must be selected. 
+
+```{r}
+autoplot(knn_nonbenf_tune_res)
+autoplot(knn_benf_tune_res)
+
+```
+
+
+### Finalizing our workflow
+
+
+```{r}
+knn_nonbenf_best_model <- select_best(knn_nonbenf_tune_res, metric = "mcc")
+
+knn_nonbenf_workflow_final <- 
+  knn_nonbenf_workflow %>% 
+  finalize_workflow(knn_nonbenf_best_model)
+
+
+knn_benf_best_model <- select_best(knn_benf_tune_res, metric = "mcc")
+
+knn_benf_workflow_final <- 
+  knn_benf_workflow %>% 
+  finalize_workflow(knn_benf_best_model)
+```
+
+
+## Results on test set
+
+```{r echo=TRUE}
+knn_nonbenf_last_fit <- knn_nonbenf_workflow_final %>% 
+  last_fit(nonbenf_split, 
+           metrics = metric_set(mcc, accuracy,sensitivity, 
+                            specificity))
+
+knn_benf_last_fit <- knn_benf_workflow_final %>% 
+  last_fit(benf_split, 
+           metrics = metric_set(mcc, accuracy,sensitivity, 
+                            specificity))
+```
+
+
+```{r}
+knn_nonbenf_metrics <- knn_nonbenf_last_fit %>% 
+  collect_metrics()
+
+knn_nonbenf_metrics
+
+knn_benf_metrics <- knn_nonbenf_last_fit %>% 
+  collect_metrics()
+
+knn_nonbenf_metrics
+
+```
+
