@@ -53,11 +53,11 @@ pval$gvkey <- as.character(pval$gvkey)
 
 pval <- pval[complete.cases(pval),]
 
-nonbenf <- pval %>% select(-gvkey, -sich, -X1st_CHI2_PVAL, -X1st_pval_t, -X2nd_CHI2_PVAL, -X2nd_pval_t, -X1st_2nd_CHI2_PVAL, -X1st_2nd_pval_t, -pval_1st, -pval_2nd, -pval_1st_2nd)
-benf <- pval %>% select( -gvkey, -sich, -X1st_pval_t, -X2nd_pval_t, -X1st_2nd_pval_t, -X1st_CHI2_PVAL, -X2nd_CHI2_PVAL, -X1st_2nd_CHI2_PVAL)
+nonbenf <- pval %>% select(-gvkey, -sich, -pval_1st, -pval_2nd, -pval_1st_2nd)
+benf <- pval %>% select( -gvkey, -sich)
 
 set.seed(466581)
-nonbenf_split <-initial_split(nonbenf, prop = 7.5/10, strata = misstate)
+nonbenf_split <-initial_split(nonbenf, prop = 7/10, strata = misstate)
 nonbenf_split
 
 # extract training and testing sets
@@ -70,7 +70,7 @@ nonbenf_folds <- vfold_cv(nonbenf_train, strata = misstate)
 
 
 set.seed(466581)
-benf_split <-initial_split(benf, prop = 7.5/10, strata = misstate)
+benf_split <-initial_split(benf, prop = 7/10, strata = misstate)
 benf_split
 
 # extract training and testing sets
