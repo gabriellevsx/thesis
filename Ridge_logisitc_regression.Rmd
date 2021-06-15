@@ -1,0 +1,250 @@
+---
+title: "Ridge logitstic regression"
+author: "Gabrielle Voiseux"
+date: "08/06/2021"
+output: html_document
+---
+
+
+The relevant packages must be loaded.
+
+
+```{r}
+library("tidymodels")
+library("readr")
+library("glmnet")
+library("kernlab")
+library(themis)
+library(dplyr)
+library(tidyverse)
+library(DALEXtra)
+```
+
+Similarly, the data set used is loaded to the R environment.
+
+
+```{r}
+pval <- read.csv("pval_data.csv") %>% select(-X, -period, -fyear)
+
+```
+
+Some variables must be transformed.
+
+```{r}
+pval$misstate <- as.factor(pval$misstate)
+pval$sich <- as.factor(pval$sich)
+pval$gvkey <- as.character(pval$gvkey)
+
+pval <- pval[complete.cases(pval),]
+
+nonbenf <- pval %>% select(-gvkey, -sich, -pval_1st, -pval_2nd, -pval_1st_2nd)
+benf <- pval %>% select( -gvkey, -sich)
+
+set.seed(466581)
+nonbenf_split <-initial_split(nonbenf, prop = 7/10, strata = misstate)
+nonbenf_split
+
+# extract training and testing sets
+nonbenf_train <- training(nonbenf_split)
+nonbenf_test <- testing(nonbenf_split)
+
+
+set.seed(466581)
+nonbenf_folds <- vfold_cv(nonbenf_train, strata = misstate)
+
+
+set.seed(466581)
+benf_split <-initial_split(benf, prop = 7/10, strata = misstate)
+benf_split
+
+# extract training and testing sets
+benf_train <- training(benf_split)
+benf_test <- testing(benf_split)
+
+
+set.seed(466581)
+benf_folds <- vfold_cv(benf_train, strata = misstate)
+
+```
+
+
+```{r}
+logreg_recipe <- recipe(misstate ~ ., data = nonbenf_train) %>% 
+  step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
+                 ni, ppe, pstk, re, receiv, sale) %>% 
+  #step_rm(period, fyear) %>%
+  step_impute_knn(all_predictors()) %>%
+  step_downsample(misstate)
+
+
+logreg_b_recipe <- recipe(misstate ~ ., data = benf_train) %>% 
+  step_normalize(crt_ast, acc_pyb, ast,cmn_equ, cash, cogs, csho, crt_dbt, lt_db_is, lt_db, dpr_amrt,ibei, invt, ivao, st_inv, crt_liab, liab,
+                ni, ppe, pstk, re, receiv, sale) %>% 
+  #step_rm(period, fyear) %>%
+   step_impute_knn(all_predictors()) %>%
+  step_downsample(misstate)
+```
+
+
+Putting everything together in a workflow.
+
+```{r}
+logreg_model <- logistic_reg(penalty = tune(), mixture = 0) %>% 
+  set_engine("glmnet")
+
+
+logreg_wf <- workflow() %>% 
+  add_recipe(logreg_recipe) %>% 
+  add_model(logreg_model)
+
+logreg_b_wf <- workflow() %>% 
+  add_recipe(logreg_b_recipe) %>% 
+  add_model(logreg_model)
+
+
+grid_ridge <- tibble(penalty = 10^(seq(from = -1, to = 4, length.out = 100)))
+
+class_metrics <- metric_set(mcc, accuracy, sensitivity, specificity)
+
+```
+
+
+```{r}
+
+ridge_tune <- logreg_wf %>% 
+  tune_grid(resamples = nonbenf_folds, 
+            grid = grid_ridge,
+            metrics = class_metrics)
+
+
+
+ridge_b_tune <- logreg_b_wf %>% 
+  tune_grid(resamples = benf_folds, 
+            grid = grid_ridge,
+            metrics = class_metrics)
+
+autoplot(ridge_tune)
+autoplot(ridge_b_tune)
+```
+
+Tuning the models using cross-validation
+```{r}
+ridge_metrics_sub <- ridge_tune %>% collect_metrics() %>% 
+  pivot_wider(names_from = ".metric", 
+              values_from = c("mean", "std_err")) %>% 
+  filter(mean_mcc < 0.55) %>% 
+  arrange(desc(mean_mcc))
+ridge_metrics_sub
+
+ridge_selected <- ridge_metrics_sub %>% filter(.config == "Preprocessor1_Model007")
+
+
+ridge_b_metrics_sub <- ridge_b_tune %>% collect_metrics() %>% 
+  pivot_wider(names_from = ".metric", 
+              values_from = c("mean", "std_err")) %>% 
+  filter(mean_mcc < 0.55) %>% 
+  arrange(desc(mean_mcc))
+ridge_b_metrics_sub
+
+ridge_bf_selected <- ridge_b_metrics_sub %>% filter(.config == "Preprocessor1_Model009")
+
+
+
+ridge_wf_tuned <- 
+  logreg_wf %>% 
+  finalize_workflow(ridge_selected)
+ridge_wf_tuned
+
+
+ridge_wf_b_tuned <- 
+  logreg_b_wf %>% 
+  finalize_workflow(ridge_bf_selected)
+ridge_wf_b_tuned
+```
+
+Predicting on the test sets.
+
+```{r}
+ridge_last_fit <- ridge_wf_tuned %>% 
+  last_fit(nonbenf_split, metrics = class_metrics)
+
+ridge_last_b_fit <- ridge_wf_b_tuned %>% 
+  last_fit(benf_split, metrics = class_metrics)
+
+ridge_test_metrics <- ridge_last_fit %>% collect_metrics()
+
+ridge_test_b_metrics <- ridge_last_b_fit %>% collect_metrics()
+
+```
+
+
+
+Getting the confusion matrices.  
+ 
+```{r}
+ridge_test_pred <- ridge_last_fit %>% collect_predictions()
+
+ridge_test_b_pred <- ridge_last_b_fit %>% collect_predictions()
+
+
+nonbenf_pred <- nonbenf_test %>% mutate(ridge_nb_pred = ridge_test_pred$.pred_class)
+
+benf_pred <- benf_test %>% mutate(ridge_b_pred = ridge_test_b_pred$.pred_class)
+
+conf_mat(nonbenf_pred, truth = misstate, estimate = ridge_nb_pred)
+
+conf_mat(benf_pred, truth = misstate, estimate = ridge_b_pred)
+
+```
+
+Variable importance graphs
+
+```{r}
+library(vip)
+
+ridge_last_fit %>% 
+  pluck(".workflow", 1) %>%   
+  pull_workflow_fit() %>% 
+  vip(num_features = 20)
+
+
+ridge_last_b_fit %>% 
+  pluck(".workflow", 1) %>%   
+  pull_workflow_fit() %>% 
+  vip(num_features = 20)
+
+```
+
+Partial dependence plots
+
+```{r}
+
+final_fitted <- ridge_last_fit$.workflow[[1]]
+
+final_b_fitted <- ridge_last_b_fit$.workflow[[1]]
+
+explainer <- explain_tidymodels(
+  final_fitted,
+  data = dplyr::select(nonbenf_train, -misstate),
+  y = as.integer(nonbenf_train$misstate),
+  verbose = FALSE
+)
+
+pdp_time <- model_profile(
+  explainer,
+  variables = "soft_assets",
+  N = NULL)
+
+
+as_tibble(pdp_time$agr_profiles) %>%
+  ggplot(aes(`_x_`, `_yhat_`)) +
+  geom_line(size = 1.2, alpha = 0.8) +
+  labs(
+    x = "Ratio of soft to total assets",
+    y = "Predicted probability of misstatement",
+    color = NULL,
+    title = "Partial dependence plot - Soft assets ratio")
+```
+
+
+
