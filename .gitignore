@@ -2,3 +2,23 @@
 .Rhistory
 .RData
 .Ruserdata
+benford_dataset.csv
+bf_pval_1.csv
+boxplot_assets.png
+boxplot_dch_rec.png
+boxplot_dch_inv.png
+pval_2nd.png
+pval_3.csv
+pval_3rd.png
+pval_2.csv
+pval_4.csv
+Data Preparation and analysis.R
+boxplot_depr.png
+boxplot_soft_assets.png
+boxplot_liab.png
+pval_data.csv
+pval_5.csv
+Data Preparation and analysis.R
+pval_1.csv
+pval_1st.png
+pval_data.csv
